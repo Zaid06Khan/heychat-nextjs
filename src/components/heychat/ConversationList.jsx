@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getSession, logout, getCurrentAccount } from '@/lib/heychatAuth';
-import { MessageCircle, Users, Settings, User, Plus, Search, DollarSign } from 'lucide-react';
+import { MessageCircle, Users, User, Plus, Search } from 'lucide-react';
 import Avatar from './Avatar';
 import Logo from './Logo';
-import { t } from '@/lib/i18n';
 import GroupCreateDialog from './GroupCreateDialog';
 
 export default function ConversationList() {
@@ -152,29 +151,6 @@ export default function ConversationList() {
             </Link>
           ))
         )}
-      </div>
-
-      <div className="p-2 border-t border-border flex items-center justify-around">
-        <Link to="/home" className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition ${location.pathname === '/home' ? 'text-primary' : 'text-muted-foreground'}`}>
-          <MessageCircle className="w-5 h-5" />
-          <span className="text-[10px]">{t('nav.chats')}</span>
-        </Link>
-        <Link to="/contacts" className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition ${location.pathname === '/contacts' ? 'text-primary' : 'text-muted-foreground'}`}>
-          <Users className="w-5 h-5" />
-          <span className="text-[10px]">{t('nav.contacts')}</span>
-        </Link>
-        <Link to="/earn" className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition ${location.pathname === '/earn' ? 'text-primary' : 'text-muted-foreground'}`}>
-          <DollarSign className="w-5 h-5" />
-          <span className="text-[10px]">{t('nav.earn')}</span>
-        </Link>
-        <Link to="/profile" className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition ${location.pathname === '/profile' ? 'text-primary' : 'text-muted-foreground'}`}>
-          <User className="w-5 h-5" />
-          <span className="text-[10px]">{t('nav.profile')}</span>
-        </Link>
-        <Link to="/settings" className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition ${location.pathname === '/settings' ? 'text-primary' : 'text-muted-foreground'}`}>
-          <Settings className="w-5 h-5" />
-          <span className="text-[10px]">{t('nav.settings')}</span>
-        </Link>
       </div>
 
       <GroupCreateDialog open={showGroupDialog} onClose={() => setShowGroupDialog(false)} onCreated={(conv) => navigate(`/chat/${conv.id}`)} />

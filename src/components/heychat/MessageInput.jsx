@@ -81,22 +81,25 @@ export default function MessageInput({ onSend, disabled }) {
 
   if (recording) {
     return (
-      <div className="flex items-center gap-3 px-4 py-3 bg-background border-t border-border">
-        <div className="flex items-center gap-2 flex-1">
-          <span className="w-3 h-3 bg-destructive rounded-full animate-pulse" />
-          <span className="text-sm text-muted-foreground">
-            Recording... {Math.floor(recTime / 60)}:{String(recTime % 60).padStart(2, '0')}
-          </span>
+      <div className="bg-background border-t border-border">
+        <div className="flex items-center gap-3 px-4 py-3 max-w-3xl mx-auto w-full">
+          <div className="flex items-center gap-2 flex-1">
+            <span className="w-3 h-3 bg-destructive rounded-full animate-pulse" />
+            <span className="text-sm text-muted-foreground">
+              Recording... {Math.floor(recTime / 60)}:{String(recTime % 60).padStart(2, '0')}
+            </span>
+          </div>
+          <button onClick={stopRecording} className="w-10 h-10 rounded-full bg-destructive flex items-center justify-center text-white">
+            <Square className="w-4 h-4" />
+          </button>
         </div>
-        <button onClick={stopRecording} className="w-10 h-10 rounded-full bg-destructive flex items-center justify-center text-white">
-          <Square className="w-4 h-4" />
-        </button>
       </div>
     );
   }
 
   return (
-    <div className="flex items-end gap-2 px-3 py-3 bg-background border-t border-border">
+    <div className="bg-background border-t border-border">
+    <div className="flex items-end gap-2 px-3 py-3 max-w-3xl mx-auto w-full">
       <input ref={fileInputRef} type="file" accept="image/*,video/*,application/pdf,.doc,.docx,.txt,.zip" onChange={handleFileSelect} className="hidden" />
       <button
         onClick={() => fileInputRef.current?.click()}
@@ -139,6 +142,7 @@ export default function MessageInput({ onSend, disabled }) {
           <Mic className="w-5 h-5" />
         </button>
       )}
+    </div>
     </div>
   );
 }

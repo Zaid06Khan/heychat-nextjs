@@ -50,8 +50,10 @@ const AuthenticatedApp = () => {
           <Route path="/profile" element={<Profile />} />
           <Route path="/earn" element={<Earn />} />
         </Route>
+        {/* Guarded like everything else, but outside AppLayout — a call is a
+            fullscreen overlay and shouldn't sit next to the sidebar. */}
+        <Route path="/call/:conversationId" element={<Call />} />
       </Route>
-      <Route path="/call/:conversationId" element={<Call />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

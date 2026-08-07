@@ -99,11 +99,15 @@ export default function Earn() {
 
   return (
     <div className="flex flex-col h-full bg-background overflow-y-auto">
-      <div className="px-4 py-3 border-b border-border sticky top-0 bg-background z-10">
-        <h1 className="text-xl font-heading font-bold text-foreground">Earn</h1>
+      <div className="border-b border-border sticky top-0 bg-background z-10">
+        <div className="px-4 py-3 max-w-2xl mx-auto w-full">
+          <h1 className="text-xl font-heading font-bold text-foreground">Earn</h1>
+        </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      {/* Without the cap the balance card stretches to the full pane on a
+          desktop window — a 1300px-wide gradient bar reading "$0.00". */}
+      <div className="p-4 space-y-4 max-w-2xl mx-auto w-full">
         {/* Balance card */}
         <div className="rounded-3xl gradient-bg p-6 glow-soft">
           <div className="flex items-center gap-2 text-white/80 mb-1">

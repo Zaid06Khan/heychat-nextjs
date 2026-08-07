@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getCurrentAccount } from '@/lib/heychatAuth';
-import { ArrowLeft, Camera, Save, QrCode, Share2 } from 'lucide-react';
+import { Camera, Save, QrCode, Share2 } from 'lucide-react';
 import Avatar from '@/components/heychat/Avatar';
 
 export default function Profile() {
@@ -59,19 +58,18 @@ export default function Profile() {
 
   return (
     <div className="flex flex-col h-full bg-background overflow-y-auto">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border sticky top-0 bg-background z-10">
-        <Link to="/home" className="md:hidden text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <h1 className="text-xl font-heading font-bold text-foreground flex-1">Profile</h1>
-        <button onClick={handleShare} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
-          <Share2 className="w-5 h-5" />
-        </button>
-        <button onClick={() => setShowQR(true)} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
-          <QrCode className="w-5 h-5" />
-        </button>
+      <div className="border-b border-border sticky top-0 bg-background z-10">
+        <div className="flex items-center gap-3 px-4 py-3 max-w-2xl mx-auto w-full">
+          <h1 className="text-xl font-heading font-bold text-foreground flex-1">Profile</h1>
+          <button onClick={handleShare} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
+            <Share2 className="w-5 h-5" />
+          </button>
+          <button onClick={() => setShowQR(true)} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
+            <QrCode className="w-5 h-5" />
+          </button>
+        </div>
       </div>
-      <div className="p-6 flex flex-col items-center">
+      <div className="p-6 flex flex-col items-center max-w-2xl mx-auto w-full">
         <div className="relative">
           <Avatar src={avatar} name={displayName || account.username} size={100} />
           <label className="absolute bottom-0 right-0 w-8 h-8 rounded-full gradient-bg flex items-center justify-center cursor-pointer border-2 border-background">

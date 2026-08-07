@@ -131,7 +131,10 @@ export default function ChatView() {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-background/80 backdrop-blur-sm relative">
+      {/* Bar spans the pane; its contents track the thread's column so the
+          avatar and the messages below it share a left edge. */}
+      <div className="border-b border-border bg-background/80 backdrop-blur-sm">
+      <div className="flex items-center gap-3 px-4 py-3 max-w-3xl mx-auto w-full relative">
         <Link to="/home" className="md:hidden text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-5 h-5" />
         </Link>
@@ -173,8 +176,9 @@ export default function ChatView() {
           )}
         </div>
       </div>
+      </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
+      <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Shield className="w-12 h-12 text-muted-foreground opacity-30 mb-3" />
@@ -182,7 +186,8 @@ export default function ChatView() {
             <p className="text-xs text-muted-foreground mt-1">Say hello to start the conversation</p>
           </div>
         ) : (
-          messages.map((msg, i) => {
+          <div className="max-w-3xl mx-auto w-full space-y-2">
+          {messages.map((msg, i) => {
             const isOwn = msg.sender_id === session.id;
             const prevMsg = messages[i - 1];
             const showSender = conversation.type === 'group' && !isOwn && (!prevMsg || prevMsg.sender_id !== msg.sender_id);
@@ -192,7 +197,8 @@ export default function ChatView() {
               senderName = member?.display_name || member?.username || 'Unknown';
             }
             return <MessageBubble key={msg.id} message={msg} isOwn={isOwn} senderName={senderName} showSender={showSender} />;
-          })
+          })}
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>

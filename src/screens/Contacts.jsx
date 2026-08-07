@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getSession } from '@/lib/heychatAuth';
-import { ArrowLeft, Users, Check, X } from 'lucide-react';
+import { Users, Check, X } from 'lucide-react';
 import Avatar from '@/components/heychat/Avatar';
 import ContactSearch from '@/components/heychat/ContactSearch';
 import GroupCreateDialog from '@/components/heychat/GroupCreateDialog';
@@ -69,16 +69,15 @@ export default function Contacts() {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-        <Link to="/home" className="md:hidden text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <h1 className="text-xl font-heading font-bold text-foreground flex-1">Contacts</h1>
-        <button onClick={() => setShowGroup(true)} className="flex items-center gap-1.5 text-sm text-primary px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition">
-          <Users className="w-4 h-4" /> New Group
-        </button>
+      <div className="border-b border-border">
+        <div className="flex items-center gap-3 px-4 py-3 max-w-2xl mx-auto w-full">
+          <h1 className="text-xl font-heading font-bold text-foreground flex-1">Contacts</h1>
+          <button onClick={() => setShowGroup(true)} className="flex items-center gap-1.5 text-sm text-primary px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition">
+            <Users className="w-4 h-4" /> New Group
+          </button>
+        </div>
       </div>
-      <div className="p-4 space-y-4 overflow-y-auto flex-1">
+      <div className="p-4 space-y-4 overflow-y-auto flex-1 max-w-2xl mx-auto w-full">
         <ContactSearch onContactAdded={loadData} />
         <div className="flex gap-2">
           <button onClick={() => setTab('contacts')} className={`flex-1 py-2 rounded-xl text-sm font-medium transition ${tab === 'contacts' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>

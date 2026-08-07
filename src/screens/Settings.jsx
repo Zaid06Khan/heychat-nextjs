@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getCurrentAccount, logout, deleteAccount } from '@/lib/heychatAuth';
 import { ArrowLeft, Shield, Eye, Users, Trash2, LogOut, Smartphone, AlertTriangle, Globe, KeyRound, MapPin } from 'lucide-react';
@@ -50,13 +50,12 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col h-full bg-background overflow-y-auto">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border sticky top-0 bg-background z-10">
-        <Link to="/home" className="md:hidden text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <h1 className="text-xl font-heading font-bold text-foreground">Settings</h1>
+      <div className="border-b border-border sticky top-0 bg-background z-10">
+        <div className="flex items-center gap-3 px-4 py-3 max-w-2xl mx-auto w-full">
+          <h1 className="text-xl font-heading font-bold text-foreground">Settings</h1>
+        </div>
       </div>
-      <div className="p-4 space-y-6 max-w-2xl">
+      <div className="p-4 space-y-6 max-w-2xl mx-auto w-full">
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
             <Shield className="w-4 h-4" /> Privacy
