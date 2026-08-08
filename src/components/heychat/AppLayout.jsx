@@ -16,7 +16,9 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      <aside className="hidden md:flex w-80 lg:w-96 flex-col border-r border-border bg-sidebar/50 backdrop-blur-sm">
+      {/* Full-strength sidebar fill and a 2px ink edge: Bodega separates panes
+          with weight, not with translucency and blur. */}
+      <aside className="hidden md:flex w-80 lg:w-96 flex-col border-r-2 border-foreground bg-sidebar">
         <div className="flex-1 min-h-0">
           <ConversationList />
         </div>

@@ -54,20 +54,22 @@ export default function MessageBubble({ message, isOwn, senderName, showSender }
 
   return (
     <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} animate-message-in`}>
+      {/* Sticker bubbles: 2px ink border and a hard offset shadow, no blur.
+          Both sides carry the same weight — the fill is what tells them apart. */}
       <div
-        className={`max-w-[75%] md:max-w-[65%] rounded-2xl px-3 py-2 ${
+        className={`max-w-[75%] md:max-w-[65%] rounded-2xl px-3.5 py-2.5 border-2 border-foreground shadow-pop-sm ${
           isOwn
             ? 'bg-primary text-primary-foreground rounded-br-md'
             : 'bg-card text-card-foreground rounded-bl-md'
         }`}
       >
         {showSender && !isOwn && (
-          <p className="text-xs font-semibold text-accent mb-0.5">{senderName}</p>
+          <p className="text-xs font-bold font-display text-primary mb-0.5">{senderName}</p>
         )}
         {renderContent()}
-        <div className={`flex items-center gap-1 mt-0.5 ${isOwn ? 'justify-end' : 'justify-end'}`}>
-          {message.expiry_at && <Flame className="w-3 h-3 opacity-60" />}
-          <span className="text-[10px] opacity-60">{time}</span>
+        <div className="flex items-center gap-1 mt-1 justify-end">
+          {message.expiry_at && <Flame className="w-3 h-3 opacity-70" />}
+          <span className={`text-[10px] font-bold tracking-wide ${isOwn ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{time}</span>
           {isOwn && (isRead ? <CheckCheck className="w-3 h-3" /> : <Check className="w-3 h-3" />)}
         </div>
       </div>

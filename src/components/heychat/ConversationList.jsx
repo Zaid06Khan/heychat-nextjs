@@ -87,13 +87,13 @@ export default function ConversationList() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-border">
+      <div className="p-4 border-b-2 border-foreground">
         <div className="flex items-center justify-between mb-3">
           <Link to="/home" className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl gradient-bg flex items-center justify-center">
-              <Logo className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 rounded-xl gradient-bg flex items-center justify-center shadow-pop-sm">
+              <Logo className="w-5 h-5" />
             </div>
-            <span className="text-xl font-heading font-bold gradient-text">HeyChat</span>
+            <span className="text-2xl font-display font-extrabold text-foreground">HeyChat</span>
           </Link>
           <div className="flex items-center gap-1">
             <Link to="/contacts" className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
@@ -104,9 +104,9 @@ export default function ConversationList() {
             </button>
           </div>
         </div>
-        <Link to="/contacts" className="flex items-center gap-2 bg-secondary rounded-xl px-3 py-2.5">
-          <Search className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Search contacts...</span>
+        <Link to="/contacts" className="flex items-center gap-2 bg-secondary border-2 border-foreground rounded-xl px-3 py-2.5">
+          <Search className="w-4 h-4 text-foreground" />
+          <span className="text-sm font-medium text-muted-foreground">Search contacts</span>
         </Link>
       </div>
 
@@ -126,14 +126,14 @@ export default function ConversationList() {
             <Link
               key={conv.id}
               to={`/chat/${conv.id}`}
-              className={`flex items-center gap-3 px-4 py-3 transition border-b border-border/50 ${
-                isActive(conv.id) ? 'bg-primary/10' : 'hover:bg-secondary/30'
+              className={`flex items-center gap-3 px-4 py-3 transition border-b border-border ${
+                isActive(conv.id) ? 'bg-accent' : 'hover:bg-secondary'
               }`}
             >
               <Avatar src={conv.displayAvatar} name={conv.displayName} size={48} online={conv.online} isGroup={conv.type === 'group'} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
-                  <p className="font-medium text-foreground text-sm truncate">
+                  <p className="font-display font-bold text-foreground text-[15px] truncate">
                     {conv.type === 'group' && <Users className="w-3.5 h-3.5 inline mr-1 text-muted-foreground" />}
                     {conv.displayName}
                   </p>

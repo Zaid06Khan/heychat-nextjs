@@ -47,7 +47,7 @@ export default function Landing() {
           ].map((f, i) => (
             <div key={i} className="flex flex-col items-center text-center gap-2">
               <div className="w-12 h-12 rounded-2xl bg-card border border-border flex items-center justify-center">
-                <f.icon className="w-5 h-5 text-accent" />
+                <f.icon className="w-5 h-5 text-foreground" />
               </div>
               <p className="text-xs text-muted-foreground">{f.label}</p>
             </div>

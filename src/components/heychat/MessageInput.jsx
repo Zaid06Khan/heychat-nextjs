@@ -98,7 +98,7 @@ export default function MessageInput({ onSend, disabled }) {
   }
 
   return (
-    <div className="bg-background border-t border-border">
+    <div className="bg-background border-t-2 border-foreground">
     <div className="flex items-end gap-2 px-3 py-3 max-w-3xl mx-auto w-full">
       <input ref={fileInputRef} type="file" accept="image/*,video/*,application/pdf,.doc,.docx,.txt,.zip" onChange={handleFileSelect} className="hidden" />
       <button
@@ -108,7 +108,7 @@ export default function MessageInput({ onSend, disabled }) {
       >
         {uploading ? <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> : <Paperclip className="w-5 h-5" />}
       </button>
-      <div className="flex-1 flex items-end gap-2 bg-secondary rounded-2xl px-3 py-2">
+      <div className="flex-1 flex items-end gap-2 bg-secondary rounded-2xl px-3.5 py-2 border-2 border-foreground">
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -129,7 +129,7 @@ export default function MessageInput({ onSend, disabled }) {
         <button
           onClick={handleSend}
           disabled={disabled}
-          className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center text-white shrink-0 hover:opacity-90 transition glow-violet"
+          className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center shrink-0 shadow-pop-sm hover:-translate-y-0.5 transition"
         >
           <Send className="w-4 h-4" />
         </button>
@@ -137,7 +137,7 @@ export default function MessageInput({ onSend, disabled }) {
         <button
           onClick={startRecording}
           disabled={uploading || disabled}
-          className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0 transition"
+          className="w-10 h-10 rounded-full bg-secondary border-2 border-foreground flex items-center justify-center text-foreground shrink-0 shadow-pop-sm hover:-translate-y-0.5 transition"
         >
           <Mic className="w-5 h-5" />
         </button>

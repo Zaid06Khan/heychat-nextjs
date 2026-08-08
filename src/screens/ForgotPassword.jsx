@@ -124,7 +124,7 @@ export default function ForgotPassword() {
             <div className="space-y-3">
               <button onClick={handleDeviceVerify} disabled={loading} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-primary/50 transition text-left disabled:opacity-50">
                 <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center shrink-0">
-                  <Smartphone className="w-6 h-6 text-accent" />
+                  <Smartphone className="w-6 h-6 text-foreground" />
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">Use this device</p>
@@ -147,7 +147,7 @@ export default function ForgotPassword() {
         {step === 3 && (
           <>
             <div className="flex items-center gap-2 mb-2">
-              <ShieldCheck className="w-6 h-6 text-accent" />
+              <ShieldCheck className="w-6 h-6 text-foreground" />
               <h1 className="text-3xl font-heading font-bold text-foreground">Set new password</h1>
             </div>
             <p className="text-muted-foreground mb-8">Device verified. Choose a new password for @{username}.</p>
@@ -202,7 +202,7 @@ export default function ForgotPassword() {
         {step === 5 && (
           <div className="text-center">
             <div className="w-20 h-20 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-6">
-              <CheckCircle2 className="w-10 h-10 text-accent" />
+              <CheckCircle2 className="w-10 h-10 text-foreground" />
             </div>
             <h1 className="text-3xl font-heading font-bold text-foreground mb-2">Password reset</h1>
             <p className="text-muted-foreground mb-8">Your password has been changed successfully. You can now log in with your new password.</p>

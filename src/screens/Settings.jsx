@@ -52,7 +52,7 @@ export default function Settings() {
     <div className="flex flex-col h-full bg-background overflow-y-auto">
       <div className="border-b border-border sticky top-0 bg-background z-10">
         <div className="flex items-center gap-3 px-4 py-3 max-w-2xl mx-auto w-full">
-          <h1 className="text-xl font-heading font-bold text-foreground">Settings</h1>
+          <h1 className="text-2xl font-display font-extrabold text-foreground">Settings</h1>
         </div>
       </div>
       <div className="p-4 space-y-6 max-w-2xl mx-auto w-full">
@@ -136,7 +136,7 @@ export default function Settings() {
           </h2>
           <div className="bg-card rounded-2xl border border-border p-4">
             <div className="flex items-center gap-3">
-              <Smartphone className="w-5 h-5 text-accent" />
+              <Smartphone className="w-5 h-5 text-foreground" />
               <div>
                 <p className="text-sm font-medium text-foreground">Device-bound account</p>
                 <p className="text-xs text-muted-foreground mt-0.5">This account is permanently linked to this device's fingerprint.</p>

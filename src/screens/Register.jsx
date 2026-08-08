@@ -81,7 +81,7 @@ export default function Register() {
                 className="w-full bg-secondary rounded-xl px-4 py-3 pr-10 text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary"
               />
               {checking && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />}
-              {!checking && usernameAvailable === true && <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-accent" />}
+              {!checking && usernameAvailable === true && <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-foreground" />}
               {!checking && usernameAvailable === false && <X className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-destructive" />}
             </div>
             {usernameAvailable === false && <p className="text-xs text-destructive mt-1">Username is already taken</p>}

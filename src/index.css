@@ -2,93 +2,89 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+   Bodega — chosen 2026-08-07 from three candidate directions (see the mocks in
+   git history at src/app/design-preview/).
+
+   Loud saturated flats, chunky display type, 2px ink borders with hard offset
+   shadows. Colour is confident rather than atmospheric: no gradients, no glows,
+   no blur. Earn is allowed to be fun.
+
+   This is a LIGHT theme and the app no longer sets <html class="dark">. There
+   is deliberately only one palette block now. The previous file carried two —
+   `:root` and `.dark` — which drifted apart and produced white-on-white tabs;
+   the comment explaining that bug is preserved in git history. One block cannot
+   drift from itself.
+--------------------------------------------------------------------------- */
+
 @layer base {
   :root {
-    --background: 240 16% 6.3%;
-    --foreground: 0 0% 100%;
-    --card: 240 20% 12.5%;
-    --card-foreground: 0 0% 100%;
-    --popover: 240 20% 10%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 262 83% 58%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 20% 16%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 240 20% 16%;
-    --muted-foreground: 240 10% 65%;
-    --accent: 189 95% 43%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 240 20% 18%;
-    --input: 240 20% 18%;
-    --ring: 262 83% 58%;
-    --chart-1: 262 83% 58%;
-    --chart-2: 189 95% 43%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --radius: 0.75rem;
-    --font-heading: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
-    --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
-    --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    --sidebar-background: 240 16% 8%;
-    --sidebar-foreground: 0 0% 100%;
-    --sidebar-primary: 262 83% 58%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 20% 14%;
-    --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 240 20% 18%;
-    --sidebar-ring: 262 83% 58%;
-  }
+    /* Paper #FFFDF7 · Shade #F0EDE4 · Ink #12100E
+       Electric blue #2B4CFF · Citrus #FFD23F · Tomato #FF4D2E */
+    --background: 45 98% 98%;
+    --foreground: 30 13% 6%;
+    --card: 0 0% 100%;
+    --card-foreground: 30 13% 6%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 13% 6%;
 
-  .dark {
-    /* The app renders in dark mode always (<html class="dark">), but this block
-       had never been given the brand palette — it was still stock shadcn greys,
-       while the brand violet/cyan lived only in the light `:root` block above.
-       So `bg-primary` resolved to near-white and `bg-accent` to grey, while
-       hardcoded classes like `.gradient-bg` stayed violet/cyan. That mismatch is
-       why the active tab in Contacts rendered white-on-white, and why accent
-       colours looked inconsistent across screens.
-       These now match the `:root` values: violet 262 83% 58% (#7C3AED),
-       cyan 189 95% 43%. */
-    --background: 240 17% 6%;
-    --foreground: 0 0% 98%;
-    --card: 240 14% 9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 14% 9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 262 83% 58%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 240 10% 16%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 10% 16%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 189 95% 43%;
-    --accent-foreground: 240 17% 6%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 8% 18%;
-    --input: 240 8% 18%;
-    --ring: 262 83% 58%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Electric blue: own messages, primary actions, active nav */
+    --primary: 231 100% 58%;
+    --primary-foreground: 45 98% 98%;
+
+    --secondary: 45 29% 92%;
+    --secondary-foreground: 30 13% 6%;
+    --muted: 45 29% 92%;
+    --muted-foreground: 40 8% 39%;
+
+    /* Citrus: Earn, streaks, balances. Ink on top — never white. */
+    --accent: 46 100% 62%;
+    --accent-foreground: 30 13% 6%;
+
+    /* Tomato: destructive and alerts only */
+    --destructive: 9 100% 59%;
+    --destructive-foreground: 45 98% 98%;
+
+    /* Hairline dividers. The heavy 2px ink edge is a deliberate choice made
+       per-surface via .pop, not the default for every bordered element —
+       `* { @apply border-border }` would otherwise put it on everything and
+       tip the whole app into neo-brutalism. */
+    --border: 42 20% 83%;
+    --input: 42 20% 83%;
+    --ring: 231 100% 58%;
+
+    --chart-1: 231 100% 58%;
+    --chart-2: 46 100% 62%;
+    --chart-3: 9 100% 59%;
+    --chart-4: 30 13% 6%;
+    --chart-5: 40 8% 39%;
+
+    --radius: 0.75rem;
+
+    /* The previous file declared Space Grotesk and Inter but nothing ever
+       fetched them, so every heading in the app rendered as system sans.
+       These are loaded for real in src/app/layout.jsx via next/font, which
+       assigns the --f-* variables below. */
+    --font-heading: var(--f-display), ui-sans-serif, system-ui, sans-serif;
+    --font-display: var(--f-display), ui-sans-serif, system-ui, sans-serif;
+    --font-body: var(--f-body), ui-sans-serif, system-ui, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    /* The signature. Offset, never blurred. */
+    --shadow-pop-sm: 2px 2px 0 hsl(var(--foreground));
+    --shadow-pop: 3px 3px 0 hsl(var(--foreground));
+    --shadow-pop-lg: 5px 5px 0 hsl(var(--foreground));
+
+    --sidebar-background: 45 29% 92%;
+    --sidebar-foreground: 30 13% 6%;
+    --sidebar-primary: 231 100% 58%;
+    --sidebar-primary-foreground: 45 98% 98%;
+    --sidebar-accent: 46 100% 62%;
+    --sidebar-accent-foreground: 30 13% 6%;
+    --sidebar-border: 42 20% 83%;
+    --sidebar-ring: 231 100% 58%;
   }
 }
-
-
 
 @layer base {
   * {
@@ -99,16 +95,54 @@
     @apply bg-background text-foreground font-body;
     -webkit-tap-highlight-color: transparent;
   }
+
+  h1, h2, .font-heading, .font-display {
+    letter-spacing: -0.025em;
+  }
 }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: hsl(240 20% 22%); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: hsl(240 20% 28%); }
+::-webkit-scrollbar-thumb { background: hsl(40 12% 76%); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(40 12% 62%); }
 
-.glow-violet { box-shadow: 0 0 24px rgba(124, 58, 237, 0.35); }
-.glow-cyan { box-shadow: 0 0 24px rgba(6, 182, 212, 0.35); }
-.glow-soft { box-shadow: 0 0 40px rgba(124, 58, 237, 0.15); }
+/* ---------------------------------------------------------------------------
+   The reskin lever.
+
+   44 call sites across 14 components use .gradient-bg / .gradient-text /
+   .glow-*. Rather than edit all 44, the five rules are redefined here as flat
+   Bodega surfaces, so those components retheme without being touched.
+
+   `outline` rather than `border` for the ink edge on purpose: outline sits
+   outside the box model, so adding it cannot resize a 36px logo tile or a
+   100px avatar. Modern browsers follow border-radius on outlines, so it works
+   on the circular avatars too.
+--------------------------------------------------------------------------- */
+
+.gradient-bg {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  outline: 2px solid hsl(var(--foreground));
+}
+
+.gradient-text {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  -webkit-text-fill-color: currentColor;
+  color: hsl(var(--primary));
+}
+
+/* Were soft coloured blurs. Now the hard offset. Defined after .gradient-bg so
+   that on elements carrying both, the shadow wins rather than being dropped. */
+.glow-violet, .glow-cyan { box-shadow: var(--shadow-pop-sm); }
+.glow-soft { box-shadow: var(--shadow-pop); }
+
+/* Opt in per surface, so the heavy edge stays on things you can actually press. */
+.pop {
+  border: 2px solid hsl(var(--foreground));
+  box-shadow: var(--shadow-pop-sm);
+}
 
 @keyframes message-in {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
@@ -128,15 +162,8 @@
 }
 .animate-slide-up { animation: slide-up 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
 
-.gradient-text {
-  background: linear-gradient(135deg, #7C3AED, #06B6D4);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.gradient-bg {
-  background: linear-gradient(135deg, #7C3AED 0%, #06B6D4 100%);
+@media (prefers-reduced-motion: reduce) {
+  .animate-message-in, .animate-fade-in, .animate-slide-up { animation: none; }
 }
 
 .no-select {

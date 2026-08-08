@@ -60,7 +60,7 @@ export default function Profile() {
     <div className="flex flex-col h-full bg-background overflow-y-auto">
       <div className="border-b border-border sticky top-0 bg-background z-10">
         <div className="flex items-center gap-3 px-4 py-3 max-w-2xl mx-auto w-full">
-          <h1 className="text-xl font-heading font-bold text-foreground flex-1">Profile</h1>
+          <h1 className="text-2xl font-display font-extrabold text-foreground flex-1">Profile</h1>
           <button onClick={handleShare} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
             <Share2 className="w-5 h-5" />
           </button>
@@ -79,7 +79,7 @@ export default function Profile() {
         </div>
         <p className="text-xs text-muted-foreground mt-2">@{account.username}</p>
       </div>
-      <div className="px-4 pb-8 space-y-4 max-w-2xl">
+      <div className="px-4 pb-8 space-y-4 max-w-2xl mx-auto w-full">
         <div>
           <label className="text-sm font-medium text-foreground mb-1.5 block">Display name</label>
           <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={account.username} className="w-full bg-secondary rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary" />
@@ -88,7 +88,7 @@ export default function Profile() {
           <label className="text-sm font-medium text-foreground mb-1.5 block">Bio</label>
           <textarea value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Tell people about yourself..." rows={3} className="w-full bg-secondary rounded-xl px-4 py-3 text-foreground outline-none focus:ring-2 focus:ring-primary resize-none" />
         </div>
-        <button onClick={handleSave} disabled={saving} className="w-full py-3.5 rounded-xl gradient-bg text-white font-semibold disabled:opacity-50 hover:opacity-90 transition flex items-center justify-center gap-2">
+        <button onClick={handleSave} disabled={saving} className="w-full py-3.5 rounded-xl gradient-bg font-display font-bold shadow-pop-sm disabled:opacity-50 hover:-translate-y-0.5 transition flex items-center justify-center gap-2">
           <Save className="w-4 h-4" /> {saving ? 'Saving...' : 'Save Changes'}
         </button>
       </div>

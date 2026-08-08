@@ -101,81 +101,82 @@ export default function Earn() {
     <div className="flex flex-col h-full bg-background overflow-y-auto">
       <div className="border-b border-border sticky top-0 bg-background z-10">
         <div className="px-4 py-3 max-w-2xl mx-auto w-full">
-          <h1 className="text-xl font-heading font-bold text-foreground">Earn</h1>
+          <h1 className="text-2xl font-display font-extrabold text-foreground">Earn</h1>
         </div>
       </div>
 
       {/* Without the cap the balance card stretches to the full pane on a
           desktop window — a 1300px-wide gradient bar reading "$0.00". */}
       <div className="p-4 space-y-4 max-w-2xl mx-auto w-full">
-        {/* Balance card */}
-        <div className="rounded-3xl gradient-bg p-6 glow-soft">
-          <div className="flex items-center gap-2 text-white/80 mb-1">
+        {/* Balance card — the one hero surface on this screen, so it gets
+            citrus and the large shadow. Ink on citrus, never white. */}
+        <div className="rounded-3xl bg-accent text-accent-foreground border-2 border-foreground shadow-pop-lg p-6">
+          <div className="flex items-center gap-1.5 mb-1">
             <DollarSign className="w-4 h-4" />
-            <span className="text-sm">Your Balance</span>
+            <span className="text-xs font-bold uppercase tracking-widest">Your balance</span>
           </div>
-          <p className="text-4xl font-heading font-bold text-white">{formatAmount(balance)}</p>
-          <p className="text-xs text-white/60 mt-2">Withdraw at $10 minimum</p>
+          <p className="text-6xl font-display font-extrabold leading-none">{formatAmount(balance)}</p>
+          <p className="text-xs font-semibold mt-3 opacity-70">Withdraw at $10 minimum</p>
         </div>
 
         {/* Activity cards */}
         <div className="grid grid-cols-1 gap-3">
           <button
             onClick={() => startActivity('ad_watch', 15, 0.05)}
-            className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-primary/50 transition text-left"
+            className="flex items-center gap-4 p-4 rounded-2xl bg-card border-2 border-foreground shadow-pop-sm hover:-translate-y-0.5 transition text-left"
           >
-            <div className="w-14 h-14 rounded-2xl bg-accent/20 flex items-center justify-center shrink-0">
-              <Eye className="w-7 h-7 text-accent" />
+            <div className="w-14 h-14 rounded-2xl bg-accent border-2 border-foreground flex items-center justify-center shrink-0">
+              <Eye className="w-7 h-7 text-accent-foreground" />
             </div>
             <div className="flex-1">
-              <p className="font-semibold text-foreground">Watch Ad</p>
+              <p className="font-display font-bold text-foreground">Watch Ad</p>
               <p className="text-xs text-muted-foreground">Watch a 15-second ad</p>
             </div>
             <div className="text-right">
-              <p className="font-bold text-accent">$0.05</p>
+              <p className="font-display font-extrabold text-lg text-foreground">$0.05</p>
               <p className="text-[10px] text-muted-foreground">per ad</p>
             </div>
           </button>
 
           <button
             onClick={() => startActivity('game_play', 10, 1.00)}
-            className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-primary/50 transition text-left"
+            className="flex items-center gap-4 p-4 rounded-2xl bg-card border-2 border-foreground shadow-pop-sm hover:-translate-y-0.5 transition text-left"
           >
-            <div className="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center shrink-0">
-              <Gamepad2 className="w-7 h-7 text-primary" />
+            <div className="w-14 h-14 rounded-2xl bg-primary border-2 border-foreground flex items-center justify-center shrink-0">
+              <Gamepad2 className="w-7 h-7 text-primary-foreground" />
             </div>
             <div className="flex-1">
-              <p className="font-semibold text-foreground">Play Game</p>
+              <p className="font-display font-bold text-foreground">Play Game</p>
               <p className="text-xs text-muted-foreground">Play a quick game</p>
             </div>
             <div className="text-right">
-              <p className="font-bold text-primary">$1.00</p>
+              <p className="font-display font-extrabold text-lg text-foreground">$1.00</p>
               <p className="text-[10px] text-muted-foreground">per game</p>
             </div>
           </button>
 
           <button
             onClick={() => startActivity('app_download', 10, 0.50)}
-            className="flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-primary/50 transition text-left"
+            className="flex items-center gap-4 p-4 rounded-2xl bg-card border-2 border-foreground shadow-pop-sm hover:-translate-y-0.5 transition text-left"
           >
-            <div className="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center shrink-0">
-              <Download className="w-7 h-7 text-primary" />
+            <div className="w-14 h-14 rounded-2xl bg-primary border-2 border-foreground flex items-center justify-center shrink-0">
+              <Download className="w-7 h-7 text-primary-foreground" />
             </div>
             <div className="flex-1">
-              <p className="font-semibold text-foreground">Download App</p>
+              <p className="font-display font-bold text-foreground">Download App</p>
               <p className="text-xs text-muted-foreground">Download a featured app</p>
             </div>
             <div className="text-right">
-              <p className="font-bold text-primary">$0.50</p>
+              <p className="font-display font-extrabold text-lg text-foreground">$0.50</p>
               <p className="text-[10px] text-muted-foreground">per download</p>
             </div>
           </button>
         </div>
 
         {/* How it works */}
-        <div className="rounded-2xl bg-secondary/50 p-4">
+        <div className="rounded-2xl bg-secondary border-2 border-foreground p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-4 h-4 text-accent" />
+            <Sparkles className="w-4 h-4 text-foreground" />
             <p className="text-sm font-semibold text-foreground">How earnings work</p>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -201,17 +202,17 @@ export default function Earn() {
           ) : (
             <div className="space-y-1">
               {earnings.map((e) => (
-                <div key={e.id} className="flex items-center justify-between p-3 rounded-xl bg-card border border-border">
+                <div key={e.id} className="flex items-center justify-between p-3 rounded-xl bg-card border-2 border-foreground">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center">
-                      {e.activity_type === 'ad_watch' ? <Eye className="w-4 h-4 text-accent" /> : e.activity_type === 'game_play' ? <Gamepad2 className="w-4 h-4 text-primary" /> : <Download className="w-4 h-4 text-primary" />}
+                    <div className="w-9 h-9 rounded-lg bg-accent border-2 border-foreground flex items-center justify-center">
+                      {e.activity_type === 'ad_watch' ? <Eye className="w-4 h-4 text-foreground" /> : e.activity_type === 'game_play' ? <Gamepad2 className="w-4 h-4 text-primary" /> : <Download className="w-4 h-4 text-primary" />}
                     </div>
                     <div>
                       <p className="text-sm font-medium text-foreground">{activityLabel(e.activity_type)}</p>
                       <p className="text-xs text-muted-foreground">{formatDate(e.created_date)}</p>
                     </div>
                   </div>
-                  <p className="font-bold text-accent">+{formatAmount(e.reward_amount)}</p>
+                  <p className="font-display font-extrabold text-foreground">+{formatAmount(e.reward_amount)}</p>
                 </div>
               ))}
             </div>

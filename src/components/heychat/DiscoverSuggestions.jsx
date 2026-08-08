@@ -113,7 +113,7 @@ export default function DiscoverSuggestions() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-accent" /> People near you
+            <MapPin className="w-4 h-4 text-foreground" /> People near you
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">5 new suggestions every 12 hours</p>
         </div>

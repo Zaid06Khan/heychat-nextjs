@@ -67,6 +67,13 @@ module.exports = {
   			display: ['var(--font-display)'],
   			mono: ['var(--font-mono)']
   		},
+  		// Bodega's signature: offset, never blurred. shadow-pop-sm on things you
+  		// press, shadow-pop-lg on the one hero surface per screen.
+  		boxShadow: {
+  			'pop-sm': 'var(--shadow-pop-sm)',
+  			pop: 'var(--shadow-pop)',
+  			'pop-lg': 'var(--shadow-pop-lg)'
+  		},
   		keyframes: {
   			'accordion-down': {
   				from: {

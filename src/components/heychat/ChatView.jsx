@@ -133,15 +133,15 @@ export default function ChatView() {
     <div className="flex flex-col h-full bg-background">
       {/* Bar spans the pane; its contents track the thread's column so the
           avatar and the messages below it share a left edge. */}
-      <div className="border-b border-border bg-background/80 backdrop-blur-sm">
+      <div className="border-b-2 border-foreground bg-background">
       <div className="flex items-center gap-3 px-4 py-3 max-w-3xl mx-auto w-full relative">
         <Link to="/home" className="md:hidden text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <Avatar src={avatar} name={title} size={40} online={online} isGroup={conversation.type === 'group'} />
         <div className="flex-1 min-w-0">
-          <p className="font-medium text-foreground text-sm truncate">{title}</p>
-          <p className="text-xs text-accent flex items-center gap-1">
+          <p className="font-display font-bold text-foreground text-lg truncate leading-tight">{title}</p>
+          <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
             <Shield className="w-3 h-3" /> Encrypted in transit
           </p>
         </div>
@@ -178,7 +178,7 @@ export default function ChatView() {
       </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto px-4 py-4 bg-secondary">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Shield className="w-12 h-12 text-muted-foreground opacity-30 mb-3" />

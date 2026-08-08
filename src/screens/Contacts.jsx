@@ -71,7 +71,7 @@ export default function Contacts() {
     <div className="flex flex-col h-full bg-background">
       <div className="border-b border-border">
         <div className="flex items-center gap-3 px-4 py-3 max-w-2xl mx-auto w-full">
-          <h1 className="text-xl font-heading font-bold text-foreground flex-1">Contacts</h1>
+          <h1 className="text-2xl font-display font-extrabold text-foreground flex-1">Contacts</h1>
           <button onClick={() => setShowGroup(true)} className="flex items-center gap-1.5 text-sm text-primary px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition">
             <Users className="w-4 h-4" /> New Group
           </button>
@@ -121,14 +121,14 @@ export default function Contacts() {
                   <button
                     onClick={() => acceptRequest(r)}
                     aria-label={`Accept contact request from ${r.account.display_name || r.account.username}`}
-                    className="w-9 h-9 rounded-full bg-accent/20 text-accent flex items-center justify-center hover:bg-accent/30 transition"
+                    className="w-9 h-9 rounded-full bg-accent text-accent-foreground border-2 border-foreground shadow-pop-sm flex items-center justify-center hover:-translate-y-0.5 transition"
                   >
                     <Check className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => declineRequest(r)}
                     aria-label={`Decline contact request from ${r.account.display_name || r.account.username}`}
-                    className="w-9 h-9 rounded-full bg-destructive/20 text-destructive flex items-center justify-center hover:bg-destructive/30 transition"
+                    className="w-9 h-9 rounded-full bg-card text-foreground border-2 border-foreground shadow-pop-sm flex items-center justify-center hover:-translate-y-0.5 transition"
                   >
                     <X className="w-4 h-4" />
                   </button>
