@@ -8,6 +8,7 @@ import {
   validatePassword,
   jsonError,
 } from '@/lib/auth/shared';
+import { check, clientKey, tooManyRequests } from '@/lib/auth/rateLimit';
 
 /**
  * POST /api/auth/register
@@ -35,6 +36,23 @@ export async function POST(request) {
     recovery_password,
     device_fingerprint,
   } = body ?? {};
+
+  // Accounts here are free, instant and anonymous, and the app pays money. That
+  // combination is what bulk-account fraud looks for. This will not stop a
+  // determined farm on its own, but it makes scripted signups slow enough to be
+  // visible rather than free.
+  //
+  // Kept deliberately loose. Large numbers of real users share one address
+  // behind carrier-grade NAT — common on mobile networks, and especially so in
+  // the regions this app is aimed at — so a tight per-address cap locks out
+  // legitimate people before it inconveniences an attacker. Tighten this only
+  // alongside a signal better than an IP.
+  //
+  // Also note the e2e smoke test registers three users per run.
+  const rl = check(`register:${clientKey(request)}`, 20, 60 * 60 * 1000);
+  if (!rl.ok) {
+    return tooManyRequests(rl.retryAfter, 'Too many accounts created from here. Try again later.');
+  }
 
   const usernameError = validateUsername(username);
   if (usernameError) return jsonError(usernameError);

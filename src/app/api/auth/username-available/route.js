@@ -1,5 +1,6 @@
 import { getSupabaseAdminClient } from '@/lib/supabase/admin';
 import { validateUsername, jsonError } from '@/lib/auth/shared';
+import { check, clientKey, tooManyRequests } from '@/lib/auth/rateLimit';
 
 /**
  * POST /api/auth/username-available
@@ -16,6 +17,13 @@ export async function POST(request) {
   }
 
   const { username } = body ?? {};
+
+  // This endpoint answers "does this account exist?" for anyone who asks, which
+  // is unavoidable for a live availability check at signup. Limiting it stops
+  // that becoming a way to enumerate the whole user list. Generous enough that
+  // someone typing a name in the signup box never notices.
+  const rl = check(`username:${clientKey(request)}`, 30, 60 * 1000);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter);
 
   const usernameError = validateUsername(username);
   if (usernameError) {

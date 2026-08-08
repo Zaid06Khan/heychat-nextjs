@@ -1,6 +1,7 @@
 import { getSupabaseAdminClient } from '@/lib/supabase/admin';
 import { getSupabaseRouteClient } from '@/lib/supabase/server';
 import { usernameToEmail, jsonError } from '@/lib/auth/shared';
+import { check, clientKey, tooManyRequests } from '@/lib/auth/rateLimit';
 
 /**
  * POST /api/auth/login
@@ -23,6 +24,18 @@ export async function POST(request) {
   if (!username || !password) {
     return jsonError('Username and password are required.');
   }
+
+  // Two limits, because they stop different things. Per-address caps how fast
+  // one attacker can work; per-username stops a botnet spread across many
+  // addresses all grinding the same account.
+  const ip = clientKey(request);
+  const name = String(username).trim().toLowerCase();
+
+  const byIp = check(`login:ip:${ip}`, 10, 15 * 60 * 1000);
+  if (!byIp.ok) return tooManyRequests(byIp.retryAfter);
+
+  const byUser = check(`login:user:${name}`, 5, 15 * 60 * 1000);
+  if (!byUser.ok) return tooManyRequests(byUser.retryAfter);
 
   const supabase = await getSupabaseRouteClient();
 

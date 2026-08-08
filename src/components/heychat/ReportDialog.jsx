@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { getSession } from '@/lib/heychatAuth';
+import { getSession, getCurrentAccount, invalidateCurrentAccount } from '@/lib/heychatAuth';
 import { Flag, X } from 'lucide-react';
 
 const REASONS = [
@@ -17,12 +17,14 @@ export default function ReportDialog({ open, onClose, reportedId, reportedName, 
   const [description, setDescription] = useState('');
   const [blockUser, setBlockUser] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
   const session = getSession();
 
   if (!open) return null;
 
   const handleSubmit = async () => {
     setSubmitting(true);
+    setError('');
     try {
       await base44.entities.Report.create({
         reporter_id: session.id,
@@ -33,12 +35,18 @@ export default function ReportDialog({ open, onClose, reportedId, reportedName, 
         status: 'pending',
       });
       if (blockUser) {
-        const blocked = session.blocked_account_ids || [];
+        // The existing block list has to come from the database. This used to
+        // read session.blocked_account_ids, but the session object in
+        // localStorage only ever holds { id, username, language } -- so it was
+        // always undefined, and the write below replaced the whole list with
+        // just this one person. Blocking anyone silently unblocked everyone
+        // previously blocked.
+        const account = await getCurrentAccount({ force: true });
+        const blocked = account?.blocked_account_ids || [];
         const updated = [...new Set([...blocked, reportedId])];
         await base44.entities.Account.update(session.id, { blocked_account_ids: updated });
-        const sessionData = JSON.parse(localStorage.getItem('heychat_session') || '{}');
-        sessionData.blocked_account_ids = updated;
-        localStorage.setItem('heychat_session', JSON.stringify(sessionData));
+        // Drop the memoized account so the next read sees the new list.
+        invalidateCurrentAccount();
         if (onBlocked) onBlocked();
       }
       setReason('spam');
@@ -47,6 +55,7 @@ export default function ReportDialog({ open, onClose, reportedId, reportedName, 
       onClose();
     } catch (e) {
       console.error(e);
+      setError("That didn't send. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -98,12 +107,15 @@ export default function ReportDialog({ open, onClose, reportedId, reportedName, 
           />
           <span className="text-sm text-foreground">Also block this user</span>
         </label>
+        {error && (
+          <p className="text-sm font-semibold text-destructive mb-3">{error}</p>
+        )}
         <button
           onClick={handleSubmit}
           disabled={submitting}
-          className="w-full py-3 rounded-xl bg-destructive text-white font-semibold disabled:opacity-50 hover:opacity-90 transition"
+          className="w-full py-3 rounded-xl bg-destructive text-destructive-foreground border-2 border-foreground shadow-pop-sm font-display font-bold disabled:opacity-50 hover:-translate-y-0.5 transition"
         >
-          {submitting ? 'Submitting...' : 'Submit Report'}
+          {submitting ? 'Sending…' : 'Send report'}
         </button>
       </div>
     </div>
