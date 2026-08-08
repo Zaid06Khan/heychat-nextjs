@@ -37,6 +37,19 @@ DATABASE_URL="postgresql://postgres:<db-password>@db.<project-ref>.supabase.co:5
 > which rows. Policies alone get you `42501 permission denied for table accounts`
 > before any policy is even consulted.
 
+> **The command above is for a fresh database.** These migrations are not
+> idempotent — `0001` fails with `type "account_role" already exists` on a
+> database that already has them. There is no migrations table tracking what has
+> run, so on an existing project pass only the new file:
+>
+> ```bash
+> node scripts/migrate.mjs "$DATABASE_URL" supabase/migrations/0005_earnings.sql
+> ```
+>
+> Each file runs inside a transaction and rolls back on error, so a mistake here
+> is loud rather than destructive. Real migration tracking is worth adding before
+> this list gets much longer.
+
 No email-provider configuration is needed — accounts are created through the
 admin API, which does not send or validate confirmation mail.
 
