@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getSession } from '@/lib/heychatAuth';
-import { ArrowLeft, Video, Shield, Flame, Flag } from 'lucide-react';
+import { ArrowLeft, Shield, Flame, Flag } from 'lucide-react';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
@@ -115,8 +115,6 @@ export default function ChatView() {
     setShowTimer(false);
   };
 
-  const startCall = () => navigate(`/call/${conversationId}`);
-
   if (loading) {
     return <div className="flex items-center justify-center h-full"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
   }
@@ -145,9 +143,12 @@ export default function ChatView() {
             <Shield className="w-3 h-3" /> Encrypted in transit
           </p>
         </div>
-        <button onClick={startCall} className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
-          <Video className="w-5 h-5" />
-        </button>
+        {/* The call button is deliberately absent. CallOverlay renders your own
+            camera and nothing else — there is no RTCPeerConnection, no
+            signalling and no TURN, so two people "on a call" each see
+            themselves. Shipping a button that looks like it works is worse
+            than not having one. The /call route still exists so the screen can
+            be developed against; see FOLLOWUPS.md §1. */}
         <button onClick={() => setShowReport(true)} className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
           <Flag className="w-5 h-5" />
         </button>

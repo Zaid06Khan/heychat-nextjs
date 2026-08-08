@@ -155,14 +155,35 @@ check(!otherUpd || otherUpd.length === 0, 'alice cannot edit bob\'s profile');
 const { data: ownUpd, error: ownErr } = await A.from('accounts').update({ bio: 'hi' }).eq('id', aliceId).select();
 check(ownUpd?.length === 1, 'alice can edit her own profile', ownErr?.message || '');
 
-console.log('\n--- 7. EARNINGS (scoped, not fixed) ---');
+console.log('\n--- 7. EARNINGS ---');
 const { error: bobEarnErr } = await B.from('earnings')
   .insert({ account_id: aliceId, activity_type: 'ad_watch', reward_amount: 999, status: 'credited' });
 check(!!bobEarnErr, 'bob cannot credit alice\'s balance', bobEarnErr?.message || 'NO ERROR');
 
+// Was the known hole: the amount used to be whatever the browser sent.
+// 0005_earnings.sql revoked client INSERT at both the grant and policy layer.
 const { error: selfEarnErr } = await A.from('earnings')
   .insert({ account_id: aliceId, activity_type: 'ad_watch', reward_amount: 999, status: 'credited' });
-check(!selfEarnErr, 'alice CAN still mint her own earnings (known, see FOLLOWUPS #2)');
+check(!!selfEarnErr, 'alice cannot mint her own earnings either', selfEarnErr?.message || 'NO ERROR');
+
+// The rate card is server-side: RLS is on with no policy for `authenticated`,
+// so a direct read returns nothing even though the RPC can see it.
+const { data: rateRows, error: rateErr } = await A.from('earn_rewards').select('*');
+check(!!rateErr || (rateRows || []).length === 0,
+  'alice cannot read the reward rate card directly', rateErr?.message || `${(rateRows||[]).length} rows`);
+
+// The only sanctioned path. Takes a type, never an amount.
+const { data: credited, error: creditErr } = await A.rpc('credit_earning', { p_activity: 'ad_watch' });
+check(!creditErr, 'alice can credit through credit_earning()', creditErr?.message);
+check(Number(credited?.reward_amount) === 0.05,
+  'the server sets the amount, not the caller', `got ${credited?.reward_amount}`);
+
+// Passing an amount is not a thing the function accepts.
+const { error: forgedErr } = await A.rpc('credit_earning', { p_activity: 'ad_watch', reward_amount: 999 });
+check(!!forgedErr, 'credit_earning() rejects a caller-supplied amount', forgedErr?.message || 'NO ERROR');
+
+const { error: bogusErr } = await A.rpc('credit_earning', { p_activity: 'not_a_real_activity' });
+check(!!bogusErr, 'credit_earning() rejects an unknown activity', bogusErr?.message || 'NO ERROR');
 
 console.log(`\n=========== ${pass} passed, ${fail} failed ===========\n`);
 

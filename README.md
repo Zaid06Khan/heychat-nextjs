@@ -21,6 +21,7 @@ supabase/migrations/0001_schema.sql    tables, enums, indexes
 supabase/migrations/0002_rls.sql       row level security + helper functions
 supabase/migrations/0003_storage.sql   media bucket + upload policies
 supabase/migrations/0004_grants.sql    table privileges  <- required, see note
+supabase/migrations/0005_earnings.sql  server-side reward amounts
 ```
 
 Either paste each file into the Supabase dashboard SQL editor, or run them
