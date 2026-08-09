@@ -19,6 +19,11 @@ function extensionFor(file) {
  * Objects are written to `<user-id>/<uuid>.<ext>`. The storage policy in
  * 0003_storage.sql keys off that first path segment, so a signed-in user can
  * only ever write into their own folder.
+ *
+ * `file_url` is now the storage KEY, not a URL — the bucket went private in
+ * 0006 and public URLs stopped resolving. The name is kept because ~30 shim
+ * callers destructure it; what changed is that the value must be exchanged for
+ * a signed URL before anything can render it. See lib/media/useSignedMedia.
  */
 export const Core = {
   async UploadFile({ file }) {
@@ -38,10 +43,6 @@ export const Core = {
 
     if (error) throw new Error(error.message);
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from(BUCKET).getPublicUrl(path);
-
-    return { file_url: publicUrl };
+    return { file_url: path };
   },
 };

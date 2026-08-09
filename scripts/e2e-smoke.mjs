@@ -185,6 +185,89 @@ check(!!forgedErr, 'credit_earning() rejects a caller-supplied amount', forgedEr
 const { error: bogusErr } = await A.rpc('credit_earning', { p_activity: 'not_a_real_activity' });
 check(!!bogusErr, 'credit_earning() rejects an unknown activity', bogusErr?.message || 'NO ERROR');
 
+console.log('\n--- 8. ATTACHMENTS ARE NOT PUBLIC ---');
+// Logs in through the app so we get the session cookie the route handlers read.
+// Deliberately bob and carol, not alice — alice is already near the per-username
+// login limit added alongside this.
+const cookieLogin = async (username) => {
+  const res = await fetch(APP + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password: PW, device_fingerprint: FP }),
+  });
+  return (res.headers.getSetCookie?.() || []).map((c) => c.split(';')[0]).join('; ');
+};
+
+const sign = async (cookie, payload) => {
+  const res = await fetch(APP + '/api/media/sign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify(payload),
+  });
+  return { status: res.status, json: await res.json().catch(() => null) };
+};
+
+const objectKey = `${aliceId}/${crypto.randomUUID()}.txt`;
+const { error: upErr } = await A.storage
+  .from('media')
+  .upload(objectKey, new Blob(['top secret attachment'], { type: 'text/plain' }), {
+    contentType: 'text/plain',
+  });
+check(!upErr, 'alice uploads an attachment into her own folder', upErr?.message || '');
+
+const { data: mediaMsg } = await A.from('messages')
+  .insert({
+    conversation_id: conv.id, sender_id: aliceId, content: 'a photo',
+    message_type: 'image', media_url: objectKey, read_by: [aliceId],
+  })
+  .select().single();
+check(!!mediaMsg, 'alice sends it as a message');
+
+// The whole point of 0006: no account, no link, no file.
+const anonFetch = await fetch(`${URL}/storage/v1/object/public/media/${objectKey}`);
+check(!anonFetch.ok, 'a signed-out stranger cannot fetch the object by URL', `status=${anonFetch.status}`);
+
+const bobCookie = await cookieLogin(bob);
+const carolCookie = await cookieLogin(carol);
+
+const bobSign = await sign(bobCookie, { messageId: mediaMsg.id });
+check(bobSign.status === 200 && !!bobSign.json?.url, 'bob, who is in the conversation, gets a signed URL',
+  bobSign.json?.error || '');
+
+const bobFetch = bobSign.json?.url ? await fetch(bobSign.json.url) : { ok: false, status: 0 };
+check(bobFetch.ok, 'and that signed URL actually resolves', `status=${bobFetch.status}`);
+
+const carolSign = await sign(carolCookie, { messageId: mediaMsg.id });
+check(carolSign.status === 404, 'carol, who is not, is refused', `status=${carolSign.status}`);
+
+// The hole this would reopen: signing any key you happen to hold.
+const carolRaw = await sign(carolCookie, { key: objectKey });
+check(carolRaw.status === 404, 'carol cannot sign the raw key either', `status=${carolRaw.status}`);
+
+const noAuthSign = await sign('', { messageId: mediaMsg.id });
+check(noAuthSign.status === 401, 'signing requires a session', `status=${noAuthSign.status}`);
+
+// Rows written before 0006 hold an absolute public URL rather than a key.
+// Those URLs stopped resolving the moment the bucket went private, so the
+// resolver has to recognise them and sign the key inside. There are real rows
+// like this in production, so this is not a hypothetical.
+const { data: legacyMsg } = await A.from('messages')
+  .insert({
+    conversation_id: conv.id, sender_id: aliceId, content: 'an old photo',
+    message_type: 'image', read_by: [aliceId],
+    media_url: `${URL}/storage/v1/object/public/media/${objectKey}`,
+  })
+  .select().single();
+
+const legacySign = await sign(bobCookie, { messageId: legacyMsg.id });
+check(legacySign.status === 200 && !!legacySign.json?.url,
+  'a pre-0006 absolute URL still resolves, and is now signed', legacySign.json?.error || '');
+
+const legacyFetch = legacySign.json?.url ? await fetch(legacySign.json.url) : { ok: false, status: 0 };
+check(legacyFetch.ok, 'and the old attachment still opens', `status=${legacyFetch.status}`);
+
+await admin.storage.from('media').remove([objectKey]);
+
 console.log(`\n=========== ${pass} passed, ${fail} failed ===========\n`);
 
 // cleanup

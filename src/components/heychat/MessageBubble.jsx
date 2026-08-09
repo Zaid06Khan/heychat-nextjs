@@ -1,5 +1,6 @@
 import { Image } from '@/components/ui/image';
 import { Check, CheckCheck, Flame, FileText, Play } from 'lucide-react';
+import { useSignedMedia } from '@/lib/media/useSignedMedia';
 
 export default function MessageBubble({ message, isOwn, senderName, showSender }) {
   const time = new Date(message.created_date || message.sent_at).toLocaleTimeString([], {
@@ -8,13 +9,33 @@ export default function MessageBubble({ message, isOwn, senderName, showSender }
   });
   const isRead = message.read_by && message.read_by.length > 1;
 
+  // The media bucket is private (0006), so media_url is a storage key rather
+  // than something a browser can fetch. It is exchanged for a short-lived
+  // signed URL, and only if the server agrees this reader is in the
+  // conversation. Text messages never call out.
+  const hasMedia = Boolean(message.media_url) && message.message_type !== 'text';
+  const { url: mediaUrl, loading, failed } = useSignedMedia(
+    hasMedia ? { messageId: message.id } : {}
+  );
+
   const renderContent = () => {
+    if (hasMedia && loading) {
+      return <div className="w-48 h-32 rounded-lg bg-foreground/10 animate-pulse" />;
+    }
+    if (hasMedia && (failed || !mediaUrl)) {
+      return (
+        <p className="text-sm italic opacity-70 py-1">
+          This attachment couldn&apos;t be loaded.
+        </p>
+      );
+    }
+
     switch (message.message_type) {
       case 'image':
         return (
           <div className="rounded-lg overflow-hidden max-w-xs">
             <Image
-              src={message.media_url}
+              src={mediaUrl}
               alt="photo"
               className="w-full h-auto"
               fittingType="fit"
@@ -25,19 +46,19 @@ export default function MessageBubble({ message, isOwn, senderName, showSender }
       case 'video':
         return (
           <div className="rounded-lg overflow-hidden max-w-xs">
-            <video src={message.media_url} controls className="w-full h-auto rounded-lg" />
+            <video src={mediaUrl} controls className="w-full h-auto rounded-lg" />
           </div>
         );
       case 'voice':
         return (
           <div className="flex items-center gap-2 py-1">
-            <audio src={message.media_url} controls className="h-8 max-w-[200px]" />
+            <audio src={mediaUrl} controls className="h-8 max-w-[200px]" />
           </div>
         );
       case 'file':
         return (
           <a
-            href={message.media_url}
+            href={mediaUrl}
             download
             className="flex items-center gap-2 py-1 hover:opacity-80"
           >
