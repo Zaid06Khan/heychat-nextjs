@@ -1,11 +1,13 @@
 # HeyChat — Next.js + Supabase
 
-Self-hosted port of the Base44 HeyChat prototype. The frontend is the original
-React UI; the backend is now a Postgres database and auth you control.
+Self-hosted port of the Base44 HeyChat prototype, on a Postgres database and
+auth you control.
 
-**Read `FOLLOWUPS.md` before shipping.** Video calls, earnings crediting and
-end-to-end encryption are known-incomplete and were deliberately left out of this
-pass.
+**Read `FOLLOWUPS.md` before shipping.** The short version: **video calls have
+never worked** and the entry point is hidden; **there is no end-to-end
+encryption** and message bodies are readable by the server; **there are no push
+notifications**; and the **Earn payout figures lose money on every ad**, though
+the balance can no longer be forged.
 
 ## Setup
 
@@ -65,10 +67,18 @@ With the dev server running:
 npm run test:e2e -- http://localhost:3000
 ```
 
-Registers three throwaway users, walks register → login → send a message, asserts
-the RLS boundaries hold (non-participants can't read a conversation, nobody can
-send as someone else, `account_secrets` is unreachable, a user can't self-promote
-to admin), then deletes the users. 26 assertions.
+Registers three throwaway users, walks register → login → send a message, then
+asserts the boundaries hold, and deletes the users. **41 assertions**, covering:
+
+- non-participants can't read a conversation, and nobody can send as someone else
+- `account_secrets` is unreachable and a user can't self-promote to admin
+- earnings can't be minted, the reward rate card is unreadable, and the server —
+  not the caller — decides the amount
+- attachments can't be fetched by a signed-out stranger, are signed only for
+  people in the conversation, and pre-`0006` absolute URLs still resolve
+
+It talks to the **real** Supabase project in `.env.local`, not a fixture, and
+creates and deletes real users each run.
 
 ## Architecture
 
