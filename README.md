@@ -98,6 +98,36 @@ asserts the boundaries hold, and deletes the users. **57 assertions**, covering:
 It talks to the **real** Supabase project in `.env.local`, not a fixture, and
 creates and deletes real users each run.
 
+### Browser smoke test
+
+```bash
+npx playwright install chromium    # once
+npm run test:browser -- http://localhost:3000
+```
+
+**34 assertions, and it is not the same thing as `test:e2e`.** That suite talks
+to Supabase directly and proves the boundaries hold; it never renders a
+component. This drives the real UI in two browser contexts as two real users —
+register, contact request, accept, send, typing indicator, reaction, reply,
+edit, delete, mute, conversation list — and fails on any unexpected console
+error.
+
+On its first run it found two bugs that a passing build, 57 backend assertions
+and a review had all missed: a message menu clipped out of view by its scroll
+container, and a realtime channel that threw on every page load in development.
+**Compiling is not running**, and that is the gap this closes.
+
+Two browser *contexts* rather than two browsers, deliberately: the device
+fingerprint comes from user-agent, screen size, canvas and timezone, so both
+contexts produce the same one and both accounts can sign in. A genuinely
+different browser would fail the device check — which is also why you must
+*register* a second account when testing by hand, not log an existing one in.
+
+Push **delivery** is out of reach here: headless Chromium reports
+`Notification.permission` as `denied`, so the app correctly declines to register
+the worker. That path needs real Chrome — turn notifications on in Settings,
+then `npm run push:test -- <username>`.
+
 ## Architecture
 
 ```

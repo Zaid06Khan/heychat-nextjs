@@ -335,13 +335,12 @@ Known gaps, in rough order of how soon someone will notice:
   something older and it renders "original message unavailable" — technically
   honest, practically wrong. Needs fetching the quoted rows by id.
 - **The reply quote is not clickable.** It should scroll to the original.
-- **Typing indicators are the one thing here still untested against a real
-  database.** Everything else in #10 and #11 is covered by the e2e suite as of
-  2026-08-09 (57 assertions, all passing). Typing is not, because the harness
-  has no second live browser: the RLS policies on `realtime.messages` depend on
-  Supabase Realtime Authorization, and if it is off or the policies are wrong,
-  private channels fail closed and indicators simply never appear. Verify by
-  hand before believing them.
+- ~~Typing indicators are untested.~~ **Verified 2026-08-09** by
+  `npm run test:browser`, which drives two browser contexts as two real users.
+  The `realtime.messages` policies in `0013` work against the live project.
+  Push *delivery* is still the one thing no suite reaches — headless Chromium
+  reports `Notification.permission` as `denied`, so the app correctly declines
+  to register the worker. Real Chrome plus `npm run push:test` is the only way.
 - **Read receipts are still N updates per thread load** — one RPC call per
   unread message in `ChatView.loadMessages()`. Untouched by the #8 work, which
   only fixed the conversation list.
