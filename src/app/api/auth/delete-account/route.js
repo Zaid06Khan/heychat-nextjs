@@ -6,7 +6,7 @@ import { getSupabaseAdminClient } from '@/lib/supabase/admin';
  *
  * Deleting the auth user cascades through every table: accounts.id references
  * auth.users(id) ON DELETE CASCADE, and messages/contact_requests/calls/
- * earnings/reports/account_secrets all cascade from accounts.id. So one delete
+ * reports/account_secrets all cascade from accounts.id. So one delete
  * removes everything, atomically, in the database.
  *
  * The old client-side version issued eight separate deletes from the browser and

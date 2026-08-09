@@ -8,7 +8,7 @@
 
    Loud saturated flats, chunky display type, 2px ink borders with hard offset
    shadows. Colour is confident rather than atmospheric: no gradients, no glows,
-   no blur. Earn is allowed to be fun.
+   no blur.
 
    This is a LIGHT theme and the app no longer sets <html class="dark">. There
    is deliberately only one palette block now. The previous file carried two —
@@ -37,7 +37,9 @@
     --muted: 45 29% 92%;
     --muted-foreground: 40 8% 39%;
 
-    /* Citrus: Earn, streaks, balances. Ink on top — never white. */
+    /* Citrus: highlights and affirmatives — the online dot, "username is
+       available", the add-contact button. Ink on top — never white. It is a
+       FILL, not a text colour; it fails contrast on paper at body sizes. */
     --accent: 46 100% 62%;
     --accent-foreground: 30 13% 6%;
 

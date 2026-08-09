@@ -17,7 +17,6 @@ import Contacts from './screens/Contacts';
 import Settings from './screens/Settings';
 import Profile from './screens/Profile';
 import Call from './screens/Call';
-import Earn from './screens/Earn';
 import { applyDirection } from '@/lib/i18n';
 applyDirection();
 import AuthGuard from '@/components/heychat/AuthGuard';
@@ -48,7 +47,6 @@ const AuthenticatedApp = () => {
           <Route path="/contacts" element={<Contacts />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/profile" element={<Profile />} />
-          <Route path="/earn" element={<Earn />} />
         </Route>
         {/* Guarded like everything else, but outside AppLayout — a call is a
             fullscreen overlay and shouldn't sit next to the sidebar. */}

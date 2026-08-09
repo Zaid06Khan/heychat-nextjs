@@ -2,12 +2,35 @@ import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import ConversationList from './ConversationList';
 import BottomNav from './BottomNav';
-import { cleanupExpiredMessages } from '@/lib/heychatAuth';
+import { syncPushSubscription } from '@/lib/push/client';
 
 export default function AppLayout() {
   const location = useLocation();
 
-  useEffect(() => { cleanupExpiredMessages(); }, []);
+  // The cleanupExpiredMessages() call that used to be here is gone — expiry is
+  // a scheduled server sweep now, so it no longer depends on someone opening
+  // the app. See 0010_expiry_sweep.sql.
+
+  // Re-assert the push subscription on every start of the signed-in app.
+  //
+  // This never prompts — it returns immediately unless permission was already
+  // granted, so it cannot burn the one permission request the browser allows.
+  // It is here rather than in a one-off opt-in because push subscriptions
+  // expire and get rotated by the push service, and the failure is silent: the
+  // user believes notifications are on and simply stops receiving them.
+  useEffect(() => {
+    syncPushSubscription();
+
+    // The service worker cannot re-subscribe by itself (it has no access to the
+    // VAPID key), so on `pushsubscriptionchange` it asks whichever page is open
+    // to do it. See public/sw.js.
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (event) => {
+      if (event.data?.type === 'PUSH_SUBSCRIPTION_CHANGED') syncPushSubscription();
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
 
   // On a phone a conversation takes the whole screen and its composer sits
   // exactly where the nav would be, so the nav steps aside — the header's back

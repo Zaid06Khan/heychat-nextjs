@@ -3,7 +3,7 @@
 Things this codebase knows are wrong or unfinished. Each one is a project in its
 own right.
 
-**Status as of 2026-08-08.** Numbering is kept stable because commit messages
+**Status as of 2026-08-09.** Numbering is kept stable because commit messages
 reference these by number — closed items stay in place rather than being deleted
 and renumbered.
 
@@ -11,9 +11,9 @@ and renumbered.
 
 ## Closed since the original port
 
-- **#2 Earnings could be minted by the user** — closed by `0005_earnings.sql`.
-  The amount is now the database's decision. *Partly* closed: see below, the
-  activity still isn't verified and the economics are undecided.
+- **#2 Earnings could be minted by the user** — closed twice. `0005_earnings.sql`
+  made the amount the database's decision; `0007_drop_earnings.sql` then removed
+  the feature outright, so the question no longer arises. See #2 below.
 - **#4 Attachments were publicly readable by URL** — closed by
   `0006_private_media.sql` and `/api/media/sign`.
 - **#9 `ReportDialog` wiped the block list** — fixed. It read the list from a
@@ -48,42 +48,47 @@ To make it real you need three pieces, not one:
 
 Realistically: use LiveKit or Daily rather than building this.
 
-## 2. Earnings — the hole is closed, the economics are not
+## 2. Earnings — DROPPED, 2026-08-09
 
-**The minting hole is fixed.** `0005_earnings.sql` revoked client `INSERT` on
-`earnings` at both the grant and policy layer, moved reward amounts into
-`earn_rewards` (RLS on, no policy for `authenticated`, so the browser cannot
-read it), and made `credit_earning()` the only way in — it takes an activity
-type and never an amount.
+**The watch-and-earn feature is gone.** Not disabled, not parked behind a flag —
+removed, by `0007_drop_earnings.sql` and the commit that accompanies it. The
+`/earn` screen and route, the nav entry, the i18n keys in all ten locales, the
+`Earning` shim entity, and the `earnings` / `earn_rewards` tables, the
+`credit_earning()` and `list_earn_rewards()` functions and both enums are all
+deleted. The e2e suite now asserts the surface is *absent*, so a database that
+never ran `0007` fails loudly instead of quietly keeping it reachable.
 
-**Three things are still open.**
+The decision was taken because none of the three open problems below had an
+answer that survived contact with the numbers.
 
-**Nothing proves the activity happened.** `credit_earning()` can be called in a
-loop. The real fix is signed server-to-server callbacks from the ad network
-(AdMob SSV, ironSource, AppLovin all support this) with signature verification
-and a replay-proof nonce. That is an integration, not a migration.
-
-**The numbers lose money on every ad, everywhere.** Rewarded video pays roughly
+**The numbers lost money on every ad, everywhere.** Rewarded video pays roughly
 $10–30 per thousand completed views in the US, and often under $2 per thousand
-in South and South-East Asia — so somewhere between about two cents and a
-twentieth of a penny per view. The app pays out **$0.05 per ad** and **$1.00 per
-game play**. Even in the best market that is a loss on every single impression;
-in the worst it is a loss of roughly 50×. Sustainable apps keep 50–80%.
+in South and South-East Asia — so between about two cents and a twentieth of a
+penny per view. The app paid **$0.05 per ad** and **$1.00 per game play**. Even
+in the best market that is a loss on every impression; in the worst, ~50×.
 
-**The $10 withdrawal minimum cannot be reached by most users.** At a realistic
-share, someone watching ten ads a day needs around seven months in the US and
-over a century in South Asia. The UI also promises a 10% revenue share, and
-**there is no payout mechanism implemented at all**. Options worth weighing:
-a much lower cashout, paying in mobile top-up or gift cards rather than cash, or
-dropping money entirely in favour of streaks and unlocks.
+**Nothing proved the activity happened.** `credit_earning()` could be called in
+a loop. The real fix is signed server-to-server callbacks from the ad network
+(AdMob SSV, ironSource, AppLovin) with signature verification and a replay-proof
+nonce — an integration, not a migration.
 
-Paying users real money carries regulatory weight (KYC, tax reporting, local
-money-transmission rules). Worth a real decision before building further.
+**Fraud, structurally.** Accounts are free, instant and anonymous, and the app
+paid money. That is exactly the shape of bulk-account fraud, which ad networks
+ban for rather than merely withhold payment on — and fixing it means identity
+checks that contradict the no-signup privacy pitch the product is built on.
 
-**Fraud.** Accounts are free, instant and anonymous, and the app pays money.
-That is exactly what bulk-account fraud looks for, and ad networks ban for it
-rather than merely withholding payment. This collides with the no-signup privacy
-pitch and needs an answer *before* applying to a network.
+Also unresolved when it was cut: no payout mechanism was ever implemented, a $10
+minimum most users could never reach, and the regulatory weight of paying
+strangers real money (KYC, tax reporting, money-transmission rules).
+
+**If money ever comes back, it should not come back as this.** Charging for
+something (storage, larger groups) is a different problem with none of the fraud
+surface. The dropped code is in git history — `git show 371652e:src/screens/Earn.jsx`
+— if it is ever wanted back.
+
+**One thing survives the removal, deliberately:** citrus (`--accent`) is still
+in the palette. It was introduced for Earn but is now carrying the online dot,
+the add-contact button and "username is available". See `src/index.css`.
 
 ## 3. End-to-end encryption — product decision
 
@@ -127,18 +132,23 @@ Remaining minor: signed URLs last an hour, so a tab left open for longer will
 need a refresh to re-fetch. The client cache already refreshes five minutes
 early; a tab open for days is the untested case.
 
-## 5. Disappearing-message cleanup is client-side — OPEN
+## 5. Disappearing-message cleanup — CLOSED, 2026-08-09
 
-`cleanupExpiredMessages()` runs in the browser when someone opens the app. If
-nobody opens the app, expired messages sit in the database.
+`0010_expiry_sweep.sql`. `delete_expired_messages()` is a `SECURITY DEFINER`
+sweep on a five-minute `pg_cron` schedule, and the client call is gone.
 
-The RLS policy permits it safely (any conversation member may delete an
-*already-expired* message), so it isn't a hole — it's unreliable. Move it to
-`pg_cron` running a `SECURITY DEFINER` sweep every few minutes, and drop the
-client call.
+The orphaned-storage half needed a second mechanism. Postgres cannot delete a
+storage object — that needs the Storage API, reachable from the database only
+with pg_net and a service-role key stored in it, which is a worse thing to own
+than the problem. So the sweep queues keys in `expired_media` and
+`/api/cron/sweep-media` drains the queue with the service role. Point a
+scheduler at it; without `CRON_SECRET` set it refuses every request.
 
-Note this now also leaves **orphaned storage objects**: deleting a message row
-does not delete its attachment. The sweep should clean both.
+Two things to know. A row can outlive its expiry by up to five minutes, so the
+client still filters on render and the conversation-list RPC excludes expired
+rows — otherwise a message that has visibly disappeared from a thread lingers as
+the sidebar preview. And the migration degrades rather than fails where pg_cron
+is unavailable: the function still exists, it just needs driving from outside.
 
 ## 6. Device binding is a fingerprint, and fingerprints lie — OPEN
 
@@ -177,14 +187,33 @@ username. Worth doing before the first username-change ticket, not after.
 `src/api/base44Client.js` → `src/lib/shim/entities.js` exists so ~30 components
 didn't have to change in a single pass. It is scaffolding.
 
-Costs while it stays:
+**The worst of it is fixed** (2026-08-09), without retiring the shim itself.
+`ConversationList` used to do 1 + 2N queries — the conversations, then the other
+participant and the last message of each, one at a time — and open *two*
+realtime channels that each refetched everything on any change anywhere. It now
+does four queries regardless of conversation count, on one debounced channel.
+The last-message part needed `0011_conversation_list.sql`: "newest row per
+group" is `distinct on` in Postgres and PostgREST cannot express it.
+
+That work also fixed a bug nobody had filed: the list was ordered by
+`conversations.updated_date`, and **nothing bumps a conversation row when a
+message arrives** — so a new message never moved its conversation to the top,
+which is the one thing that list is for. It now sorts by last message.
+
+Costs while the shim stays:
 - Everything is a client-side query. No server rendering, no request waterfall
-  control — `ConversationList` fetches conversations, then loops fetching the
-  last message of each one separately.
-- `.subscribe()` opens one realtime channel per call site; `ConversationList`
-  opens two and refetches everything on any change to any message anywhere.
+  control.
+- `.subscribe()` still opens one realtime channel per call site everywhere else.
 - The Base44 filter dialect (`{ $lt: ... }`) is translated at runtime instead of
   being a typed query.
+- **Push delivery depends on it** — see #10. Because messages are written from
+  the browser, the notification is a second request the sender's tab has to
+  survive to make. Moving sending behind a route handler closes that, and is now
+  the highest-value single step here.
+
+New surfaces added since (mutes, reactions, typing, push) deliberately go
+straight to Supabase rather than through `TABLES`, so the shim shrinks by not
+growing.
 
 Migration order that keeps risk low: `Landing` → `Login`/`Register` → `Contacts`
 → `Settings`/`Profile` → `ConversationList`/`ChatView` last. Delete each entity
@@ -206,12 +235,10 @@ from `TABLES` once nothing imports it.
 - **Non-English translations have never been reviewed by native speakers.** Ten
   locales in `src/lib/i18n.js`. Strings added since (landing copy, Earn labels,
   error messages) are English-only and not in the i18n file at all.
-- **PWA has no service worker.** `InstallPrompt.jsx` offers installation, but
-  there is no offline capability and **no push notifications**. For a messaging
-  app that is close to disqualifying: you find out about a message when you next
-  happen to open the app. Arguably the single biggest reason someone would try
-  HeyChat once and not return. Web push is patchy on iOS, which ties this to the
-  native-vs-web decision.
+- **PWA has no *offline* capability.** Push notifications are now done (see #10)
+  and `public/sw.js` is a real service worker, but it deliberately does not
+  cache anything: a bad cache strategy serves users a stale build for weeks, and
+  offline was never the point. Adding one is a separate, reversible decision.
 - **No migration tracking.** Six SQL files, applied by hand, with no table
   recording what has run — and they are *not* idempotent, so re-running from
   `0001` fails on an existing database. Fix this before the list gets longer.
@@ -247,3 +274,74 @@ from `TABLES` once nothing imports it.
   conversation" loop. Fixing properly means moving these reads into TanStack
   Query (already a dependency) — part of retiring the shim (#8). Note media now
   adds one signing request per distinct attachment, cached per key.
+
+## 10. Push notifications — DONE, with three known edges
+
+Added 2026-08-09: `0008_push_subscriptions.sql`, `public/sw.js`,
+`src/lib/push/*`, `/api/push/{subscribe,unsubscribe,notify}`, and a toggle in
+Settings. The README section "Notifications" describes the design. Optional at
+runtime — with no VAPID keys set, the app behaves exactly as it did before.
+
+What is deliberately still imperfect:
+
+- **Delivery depends on the sender's tab surviving one more request.** The
+  notification is requested by the sender's browser after the message lands,
+  because messages are still written client-side through the shim. If that tab
+  dies in between, the message is delivered silently. This disappears when
+  sending moves behind a route handler — see #8, which this is now a reason to
+  do sooner. A database trigger with `pg_net` is the other option.
+- **The rate limiter is per-process** (see below), and it is what bounds
+  `/api/push/notify`. On several instances the notify budget multiplies.
+- ~~No per-conversation mute, and no "hide message preview".~~ **Both added**
+  in `0009_notification_prefs.sql`, applied server-side in the notify route —
+  a muted conversation is dropped before a push is sent, and hidden previews
+  mean the message text never leaves the server.
+
+Two smaller notes. The service worker suppresses a notification when a visible,
+focused tab is already on that exact conversation; doing that too often costs an
+origin its push budget in Chrome, so the condition is kept narrow. And
+`pushsubscriptionchange` cannot re-subscribe by itself — the worker has no
+access to the VAPID key — so it messages the page, and the app re-asserts its
+subscription on every start rather than trusting one success.
+
+## 11. Replies, reactions, edit, delete, typing — DONE, 2026-08-09
+
+`0012_message_interactions.sql` and `0013_typing_channels.sql`. Before this the
+`messages` table had carried the same five meaningful columns since the port and
+none of what people expect a messenger to do beyond "send text" existed.
+
+**Delete is a real delete.** `deleted_at` is not a visibility flag with the body
+still underneath — the update nulls `content` and `media_url` too, and a trigger
+puts the attachment on the same `expired_media` queue the expiry sweep uses.
+The e2e suite asserts a deleted message keeps no readable body, because "hidden"
+shipped as "deleted" is how people get hurt.
+
+**Typing indicators store nothing.** Realtime broadcast on a private channel,
+authorised by RLS on `realtime.messages` using the same `is_conversation_member()`
+as everything else.
+
+Known gaps, in rough order of how soon someone will notice:
+
+- **Edit and delete have no time limit and no history.** Every other messenger
+  caps editing at some window; here a two-year-old message can be silently
+  rewritten and only an "edited" marker shows. There is no record of what it
+  said before. For a chat used to agree things, that is a real gap.
+- **Reactions are not in the realtime feed.** They arrive when the thread
+  reloads for some other reason. Adding `message_reactions` to a subscription is
+  small; it just wasn't part of this pass.
+- **Deleting a message does not clear the notification** already on someone's
+  lock screen. The service worker would need to close notifications by tag.
+- **`quoteFor()` only resolves replies inside the loaded 200 messages.** Reply to
+  something older and it renders "original message unavailable" — technically
+  honest, practically wrong. Needs fetching the quoted rows by id.
+- **The reply quote is not clickable.** It should scroll to the original.
+- **Typing indicators are the one thing here still untested against a real
+  database.** Everything else in #10 and #11 is covered by the e2e suite as of
+  2026-08-09 (57 assertions, all passing). Typing is not, because the harness
+  has no second live browser: the RLS policies on `realtime.messages` depend on
+  Supabase Realtime Authorization, and if it is off or the policies are wrong,
+  private channels fail closed and indicators simply never appear. Verify by
+  hand before believing them.
+- **Read receipts are still N updates per thread load** — one RPC call per
+  unread message in `ChatView.loadMessages()`. Untouched by the #8 work, which
+  only fixed the conversation list.

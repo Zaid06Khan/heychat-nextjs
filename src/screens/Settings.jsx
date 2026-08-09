@@ -6,6 +6,7 @@ import { ArrowLeft, Shield, Eye, Users, Trash2, LogOut, Smartphone, AlertTriangl
 import { LANGUAGES, setLanguage } from '@/lib/i18n';
 import ChangePasswordDialog from '@/components/heychat/ChangePasswordDialog';
 import RecoveryPasswordDialog from '@/components/heychat/RecoveryPasswordDialog';
+import NotificationSettings from '@/components/heychat/NotificationSettings';
 import { COUNTRIES } from '@/lib/countries';
 
 export default function Settings() {
@@ -56,6 +57,8 @@ export default function Settings() {
         </div>
       </div>
       <div className="p-4 space-y-6 max-w-2xl mx-auto w-full">
+        <NotificationSettings account={account} onAccountChange={setAccount} />
+
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
             <Shield className="w-4 h-4" /> Privacy

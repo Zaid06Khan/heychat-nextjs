@@ -155,35 +155,20 @@ check(!otherUpd || otherUpd.length === 0, 'alice cannot edit bob\'s profile');
 const { data: ownUpd, error: ownErr } = await A.from('accounts').update({ bio: 'hi' }).eq('id', aliceId).select();
 check(ownUpd?.length === 1, 'alice can edit her own profile', ownErr?.message || '');
 
-console.log('\n--- 7. EARNINGS ---');
-const { error: bobEarnErr } = await B.from('earnings')
-  .insert({ account_id: aliceId, activity_type: 'ad_watch', reward_amount: 999, status: 'credited' });
-check(!!bobEarnErr, 'bob cannot credit alice\'s balance', bobEarnErr?.message || 'NO ERROR');
+console.log('\n--- 7. EARN IS GONE ---');
+// The watch-and-earn feature was removed, not disabled. These three assertions
+// exist so a database that skipped 0007_drop_earnings.sql fails loudly rather
+// than quietly keeping a client-reachable rewards surface alive: `earnings`
+// granted every authenticated user SELECT, and credit_earning() was executable
+// by anyone signed in.
+const { error: earningsErr } = await A.from('earnings').select('*').limit(1);
+check(!!earningsErr, 'the earnings table no longer exists', earningsErr?.message || 'STILL PRESENT');
 
-// Was the known hole: the amount used to be whatever the browser sent.
-// 0005_earnings.sql revoked client INSERT at both the grant and policy layer.
-const { error: selfEarnErr } = await A.from('earnings')
-  .insert({ account_id: aliceId, activity_type: 'ad_watch', reward_amount: 999, status: 'credited' });
-check(!!selfEarnErr, 'alice cannot mint her own earnings either', selfEarnErr?.message || 'NO ERROR');
+const { error: rewardsErr } = await A.from('earn_rewards').select('*').limit(1);
+check(!!rewardsErr, 'the earn_rewards rate card no longer exists', rewardsErr?.message || 'STILL PRESENT');
 
-// The rate card is server-side: RLS is on with no policy for `authenticated`,
-// so a direct read returns nothing even though the RPC can see it.
-const { data: rateRows, error: rateErr } = await A.from('earn_rewards').select('*');
-check(!!rateErr || (rateRows || []).length === 0,
-  'alice cannot read the reward rate card directly', rateErr?.message || `${(rateRows||[]).length} rows`);
-
-// The only sanctioned path. Takes a type, never an amount.
-const { data: credited, error: creditErr } = await A.rpc('credit_earning', { p_activity: 'ad_watch' });
-check(!creditErr, 'alice can credit through credit_earning()', creditErr?.message);
-check(Number(credited?.reward_amount) === 0.05,
-  'the server sets the amount, not the caller', `got ${credited?.reward_amount}`);
-
-// Passing an amount is not a thing the function accepts.
-const { error: forgedErr } = await A.rpc('credit_earning', { p_activity: 'ad_watch', reward_amount: 999 });
-check(!!forgedErr, 'credit_earning() rejects a caller-supplied amount', forgedErr?.message || 'NO ERROR');
-
-const { error: bogusErr } = await A.rpc('credit_earning', { p_activity: 'not_a_real_activity' });
-check(!!bogusErr, 'credit_earning() rejects an unknown activity', bogusErr?.message || 'NO ERROR');
+const { error: creditErr } = await A.rpc('credit_earning', { p_activity: 'ad_watch' });
+check(!!creditErr, 'credit_earning() is no longer callable', creditErr?.message || 'STILL CALLABLE');
 
 console.log('\n--- 8. ATTACHMENTS ARE NOT PUBLIC ---');
 // Logs in through the app so we get the session cookie the route handlers read.
@@ -267,6 +252,182 @@ const legacyFetch = legacySign.json?.url ? await fetch(legacySign.json.url) : { 
 check(legacyFetch.ok, 'and the old attachment still opens', `status=${legacyFetch.status}`);
 
 await admin.storage.from('media').remove([objectKey]);
+
+console.log('\n--- 9. PUSH SUBSCRIPTIONS ---');
+// A subscription row is a capability to make someone's phone buzz, so 0008
+// gives clients neither a policy nor a grant on the table. Both of these must
+// fail; if either starts passing, the table has been opened up by accident.
+const { data: pushRows, error: pushReadErr } = await A.from('push_subscriptions').select('*');
+check(!!pushReadErr || (pushRows || []).length === 0,
+  'push_subscriptions is unreadable by a signed-in user',
+  pushReadErr?.message || `${(pushRows || []).length} rows`);
+
+const { error: pushWriteErr } = await A.from('push_subscriptions')
+  .insert({ account_id: aliceId, endpoint: 'https://example.invalid/x', p256dh: 'x', auth: 'y' });
+check(!!pushWriteErr, 'a client cannot write a subscription directly',
+  pushWriteErr?.message || 'NO ERROR');
+
+const notify = async (cookie, body) => {
+  const res = await fetch(APP + '/api/push/notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, json: await res.json().catch(() => null) };
+};
+
+// The notify route's whole job is refusing to buzz people on request. Reading a
+// message is not permission to notify about it, and being nobody in particular
+// is not permission to do anything.
+const carolNotify = await notify(carolCookie, { messageId: mediaMsg.id });
+check(carolNotify.status === 404, 'a non-participant cannot trigger a notification',
+  `status=${carolNotify.status}`);
+
+const bobNotify = await notify(bobCookie, { messageId: mediaMsg.id });
+check(bobNotify.status === 404, 'a participant cannot notify about someone else\'s message',
+  `status=${bobNotify.status}`);
+
+const anonNotify = await notify('', { messageId: mediaMsg.id });
+check(anonNotify.status === 401, 'notifying requires a session', `status=${anonNotify.status}`);
+
+// Freshness, tested properly: a message bob really did send, backdated past the
+// route's one-minute window. He passes every other check, so this isolates the
+// replay guard. Written with the service role because created_date is what is
+// being controlled here. (Bob, not alice — alice is near the login limit and
+// has no cookie in this run.)
+const { data: oldMsg } = await admin.from('messages')
+  .insert({
+    conversation_id: conv.id, sender_id: bobId, content: 'sent a while ago',
+    message_type: 'text', read_by: [bobId],
+    created_date: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+  })
+  .select().single();
+
+const staleNotify = await notify(bobCookie, { messageId: oldMsg?.id });
+check(staleNotify.status === 200 && staleNotify.json?.reason === 'stale',
+  'the sender cannot replay an old message to buzz someone again',
+  `status=${staleNotify.status} reason=${staleNotify.json?.reason}`);
+
+console.log('\n--- 10. MUTES, REACTIONS AND THE LIST RPC ---');
+// Mutes are one of the few new tables clients CAN write, so the check is that
+// they can only write their own. Muting on someone else's behalf would silence
+// their notifications for them.
+const { error: muteOwnErr } = await A.from('conversation_mutes')
+  .insert({ account_id: aliceId, conversation_id: conv.id, muted_until: null });
+check(!muteOwnErr, 'alice can mute her own conversation', muteOwnErr?.message || '');
+
+const { error: muteOtherErr } = await B.from('conversation_mutes')
+  .insert({ account_id: aliceId, conversation_id: conv.id });
+check(!!muteOtherErr, 'bob cannot mute on alice\'s behalf', muteOtherErr?.message || 'NO ERROR');
+
+await A.from('conversation_mutes').delete().eq('conversation_id', conv.id);
+
+// Reactions are gated on membership of the message's conversation, via
+// is_message_member(). Carol is in neither.
+const { error: reactOkErr } = await A.from('message_reactions')
+  .insert({ message_id: msg.id, account_id: aliceId, emoji: '👍' });
+check(!reactOkErr, 'alice can react to a message in her conversation', reactOkErr?.message || '');
+
+const { error: reactOutsiderErr } = await C.from('message_reactions')
+  .insert({ message_id: msg.id, account_id: rC.json.account.id, emoji: '👍' });
+check(!!reactOutsiderErr, 'carol cannot react to a message she cannot see',
+  reactOutsiderErr?.message || 'NO ERROR');
+
+const { error: reactAsOtherErr } = await B.from('message_reactions')
+  .insert({ message_id: msg.id, account_id: aliceId, emoji: '🎉' });
+check(!!reactAsOtherErr, 'bob cannot react as alice', reactAsOtherErr?.message || 'NO ERROR');
+
+// The conversation-list RPC is SECURITY INVOKER on purpose. If it were ever
+// changed to DEFINER it would hand the last message of any conversation to
+// anyone who knew its id, and this is the assertion that would catch it.
+const { data: aliceLast } = await A.rpc('last_messages_for_conversations', { conv_ids: [conv.id] });
+check((aliceLast || []).length === 1, 'the list RPC returns the last message to a member',
+  `got ${(aliceLast || []).length} rows`);
+
+const { data: carolLast } = await C.rpc('last_messages_for_conversations', { conv_ids: [conv.id] });
+check((carolLast || []).length === 0, 'the list RPC returns nothing to a non-member',
+  `got ${(carolLast || []).length} rows`);
+
+// Delete-for-everyone has to actually remove the body, not just flag it.
+const { data: toDelete } = await A.from('messages')
+  .insert({ conversation_id: conv.id, sender_id: aliceId, content: 'delete me', read_by: [aliceId] })
+  .select().single();
+await A.from('messages')
+  .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
+  .eq('id', toDelete.id);
+const { data: afterDelete } = await B.from('messages').select('content, deleted_at').eq('id', toDelete.id).single();
+check(!!afterDelete?.deleted_at && afterDelete.content === null,
+  'a deleted message keeps no readable body', `content=${JSON.stringify(afterDelete?.content)}`);
+
+// The storage-cleanup queue is server-only, like push_subscriptions.
+const { data: mediaQueue, error: mediaQueueErr } = await A.from('expired_media').select('*');
+check(!!mediaQueueErr || (mediaQueue || []).length === 0,
+  'the expired-media queue is unreadable by a client',
+  mediaQueueErr?.message || `${(mediaQueue || []).length} rows`);
+
+console.log('\n--- 11. ATTACHMENTS OF DELETED AND EXPIRED MESSAGES ---');
+// The delete test above used a message with no attachment, so it never
+// exercised the trigger. This one does: deleting a message that HAS media must
+// queue the storage key, or "delete for everyone" leaves the file behind and
+// the only thing deleted is the pointer to it.
+const orphanKey = `${aliceId}/${crypto.randomUUID()}.txt`;
+await A.storage
+  .from('media')
+  .upload(orphanKey, new Blob(['attachment of a deleted message'], { type: 'text/plain' }), {
+    contentType: 'text/plain',
+  });
+
+const { data: mediaMsgToDelete } = await A.from('messages')
+  .insert({
+    conversation_id: conv.id, sender_id: aliceId, content: 'delete me too',
+    message_type: 'image', media_url: orphanKey, read_by: [aliceId],
+  })
+  .select().single();
+
+await A.from('messages')
+  .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
+  .eq('id', mediaMsgToDelete.id);
+
+// Read through the service role — no client can see this table, which is the point.
+const { data: queuedKey } = await admin
+  .from('expired_media').select('storage_key').eq('storage_key', orphanKey);
+check((queuedKey || []).length === 1,
+  'deleting a message queues its attachment for removal',
+  `${(queuedKey || []).length} rows for that key`);
+
+// And the collector actually removes it. Exercises the one route with no other
+// coverage, end to end: queue -> Storage API -> queue cleared.
+const sweepRes = await fetch(APP + '/api/cron/sweep-media', {
+  method: 'POST',
+  headers: { authorization: `Bearer ${env.CRON_SECRET || ''}` },
+});
+const sweepJson = await sweepRes.json().catch(() => null);
+check(sweepRes.status === 200 && (sweepJson?.deleted ?? 0) >= 1,
+  'the sweep endpoint drains the queue',
+  `status=${sweepRes.status} deleted=${sweepJson?.deleted}`);
+
+const orphanFetch = await fetch(`${URL}/storage/v1/object/public/media/${orphanKey}`);
+check(!orphanFetch.ok, 'and the object is gone from storage', `status=${orphanFetch.status}`);
+
+// The expiry sweep itself. NOTE: this deletes every already-expired message in
+// the database, not just this one — which is what pg_cron would have done
+// within five minutes anyway.
+const { data: expiredMsg } = await admin.from('messages')
+  .insert({
+    conversation_id: conv.id, sender_id: aliceId, content: 'should have vanished',
+    read_by: [aliceId], expiry_at: new Date(Date.now() - 60 * 1000).toISOString(),
+  })
+  .select().single();
+
+const { data: sweptCount, error: sweepFnErr } = await admin.rpc('delete_expired_messages');
+check(!sweepFnErr && Number(sweptCount) >= 1,
+  'delete_expired_messages() reports what it deleted',
+  sweepFnErr?.message || `returned ${sweptCount}`);
+
+const { data: stillThere } = await admin.from('messages')
+  .select('id').eq('id', expiredMsg.id).maybeSingle();
+check(!stillThere, 'and the expired row is actually gone',
+  stillThere ? 'STILL PRESENT' : '');
 
 console.log(`\n=========== ${pass} passed, ${fail} failed ===========\n`);
 

@@ -28,7 +28,6 @@ const TABLES = {
   Message: 'messages',
   ContactRequest: 'contact_requests',
   Call: 'calls',
-  Earning: 'earnings',
   Report: 'reports',
 };
 
@@ -45,29 +44,12 @@ const ARRAY_COLUMNS = {
 };
 
 /**
- * postgres `numeric` arrives as a *string* over the wire to preserve precision.
- * Base44 handed these back as JS numbers, and Earn.jsx does `sum + amount`,
- * which would silently string-concatenate. Coerce on read so the components see
- * what they saw before.
+ * There was a numeric-coercion layer here. postgres `numeric` arrives as a
+ * *string* over the wire to preserve precision, and `earnings.reward_amount`
+ * was the only such column in the schema — so when Earn was dropped, the last
+ * thing needing coercion went with it. Reinstate per-table coercion here if a
+ * `numeric` column is ever added back.
  */
-const NUMERIC_COLUMNS = {
-  earnings: ['reward_amount'],
-};
-
-function coerceRow(table, row) {
-  const cols = NUMERIC_COLUMNS[table];
-  if (!row || !cols) return row;
-  const out = { ...row };
-  for (const col of cols) {
-    if (out[col] !== null && out[col] !== undefined) out[col] = Number(out[col]);
-  }
-  return out;
-}
-
-function coerceRows(table, rows) {
-  if (!NUMERIC_COLUMNS[table]) return rows || [];
-  return (rows || []).map((r) => coerceRow(table, r));
-}
 
 /** Translates one Base44 filter entry onto a PostgREST query. */
 function applyCondition(query, table, key, value) {
@@ -116,14 +98,14 @@ function applySort(query, sort) {
   return query.order(column, { ascending: !descending });
 }
 
-function unwrap(table, { data, error }, { single = false } = {}) {
+function unwrap({ data, error }, { single = false } = {}) {
   if (error) {
     // Surface the Postgres message — an RLS rejection reads as
     // "new row violates row-level security policy", which is the truth and is
     // far more useful than a generic failure.
     throw new Error(error.message || 'Request failed');
   }
-  return single ? coerceRow(table, data) : coerceRows(table, data);
+  return single ? data : data || [];
 }
 
 function createEntity(entityName) {
@@ -137,7 +119,7 @@ function createEntity(entityName) {
       query = applyWhere(query, table, where);
       query = applySort(query, sort);
       if (limit) query = query.limit(limit);
-      return unwrap(table, await query);
+      return unwrap(await query);
     },
 
     async list(sort = null, limit = null) {
@@ -147,13 +129,13 @@ function createEntity(entityName) {
     async get(id) {
       const supabase = getSupabaseBrowserClient();
       const result = await supabase.from(table).select('*').eq('id', id).single();
-      return unwrap(table, result, { single: true });
+      return unwrap(result, { single: true });
     },
 
     async create(data) {
       const supabase = getSupabaseBrowserClient();
       const result = await supabase.from(table).insert(data).select().single();
-      return unwrap(table, result, { single: true });
+      return unwrap(result, { single: true });
     },
 
     async update(id, data) {
@@ -179,7 +161,7 @@ function createEntity(entityName) {
         .eq('id', id)
         .select()
         .single();
-      return unwrap(table, result, { single: true });
+      return unwrap(result, { single: true });
     },
 
     async delete(id) {
@@ -222,7 +204,7 @@ function createEntity(entityName) {
               payload.eventType === 'DELETE' ? payload.old : payload.new;
             callback({
               type: payload.eventType,
-              data: coerceRow(table, row),
+              data: row,
             });
           }
         )

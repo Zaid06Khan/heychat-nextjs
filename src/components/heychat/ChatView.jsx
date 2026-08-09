@@ -1,8 +1,17 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { getSession } from '@/lib/heychatAuth';
-import { ArrowLeft, Shield, Flame, Flag } from 'lucide-react';
+import { getSession, getCurrentAccount } from '@/lib/heychatAuth';
+import { requestPushForMessage } from '@/lib/push/client';
+import { getMute, muteConversation, unmuteConversation, MUTE_OPTIONS } from '@/lib/notifications/mutes';
+import {
+  getReactions,
+  toggleReaction,
+  editMessage,
+  deleteMessageForEveryone,
+} from '@/lib/messages/interactions';
+import { createTypingChannel } from '@/lib/messages/typing';
+import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff } from 'lucide-react';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
@@ -24,6 +33,13 @@ export default function ChatView() {
   const [loading, setLoading] = useState(true);
   const [showTimer, setShowTimer] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [mute, setMute] = useState(null);
+  const [showMute, setShowMute] = useState(false);
+  const [reactions, setReactions] = useState(new Map());
+  const [replyTo, setReplyTo] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [typingNames, setTypingNames] = useState([]);
+  const typingRef = useRef(null);
   const [otherUser, setOtherUser] = useState(null);
   const [members, setMembers] = useState([]);
   const messagesEndRef = useRef(null);
@@ -36,11 +52,26 @@ export default function ChatView() {
     (async () => {
       await loadConversation();
       await loadMessages();
+      setMute(await getMute(conversationId));
       unsub = base44.entities.Message.subscribe((event) => {
         if (event.data?.conversation_id === conversationId) loadMessages();
       });
+
+      const me = await getCurrentAccount();
+      typingRef.current = createTypingChannel({
+        conversationId,
+        accountId: session.id,
+        displayName: me?.display_name || me?.username || 'Someone',
+        onChange: setTypingNames,
+      });
     })();
-    return () => { if (unsub) unsub(); };
+
+    return () => {
+      if (unsub) unsub();
+      typingRef.current?.close();
+      typingRef.current = null;
+      setTypingNames([]);
+    };
   }, [conversationId]);
 
   useEffect(() => {
@@ -73,13 +104,15 @@ export default function ChatView() {
       const msgs = await base44.entities.Message.filter(
         { conversation_id: conversationId }, 'created_date', 200
       );
+      // Still filtered here, but no longer deleted here. The sweep runs every
+      // five minutes (0010), so a row can outlive its expiry by a few minutes —
+      // hiding it locally keeps "disappearing" honest on screen in the gap.
       const now = new Date();
       const active = msgs.filter((m) => !m.expiry_at || new Date(m.expiry_at) > now);
       setMessages(active);
-      const expired = msgs.filter((m) => m.expiry_at && new Date(m.expiry_at) <= now);
-      if (expired.length > 0) {
-        await base44.entities.Message.deleteMany({ conversation_id: conversationId, expiry_at: { $lt: now.toISOString() } });
-      }
+
+      setReactions(await getReactions(active.map((m) => m.id)));
+
       for (const msg of active) {
         if (msg.sender_id !== session.id && (!msg.read_by || !msg.read_by.includes(session.id))) {
           const readBy = msg.read_by || [];
@@ -95,10 +128,25 @@ export default function ChatView() {
 
   const handleSend = async (data) => {
     if (!conversation) return;
+
+    // Editing reuses the composer rather than an inline field, so a submit
+    // while `editing` is set means "save the edit", not "send a new message".
+    if (editing) {
+      const target = editing;
+      setEditing(null);
+      try {
+        await editMessage(target.id, data.content || '');
+        await loadMessages();
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
+
     const expiry_at = conversation.disappearing_timer > 0
       ? new Date(Date.now() + conversation.disappearing_timer * 1000).toISOString()
       : null;
-    await base44.entities.Message.create({
+    const message = await base44.entities.Message.create({
       conversation_id: conversationId,
       sender_id: session.id,
       content: data.content || '',
@@ -106,7 +154,98 @@ export default function ChatView() {
       message_type: data.message_type,
       expiry_at,
       read_by: [session.id],
+      reply_to_id: replyTo?.id || null,
     });
+    setReplyTo(null);
+    // Clear the indicator on the other side now rather than letting it time
+    // out — the message has arrived, so "still typing" is visibly wrong.
+    typingRef.current?.stopTyping();
+
+    // Fire-and-forget: the message is already saved, and the recipient sees it
+    // in-app through the realtime subscription regardless. This only decides
+    // whether their phone lights up. Deliberately not awaited — a slow push
+    // service must not hold up the composer. See src/app/api/push/notify.
+    requestPushForMessage(message?.id);
+  };
+
+  const handleReact = async (message, emoji) => {
+    const current = reactions.get(message.id) || [];
+    const mine = current.some((r) => r.emoji === emoji && r.account_id === session.id);
+
+    // Optimistic. A reaction is a one-tap gesture and waiting on a round trip
+    // to see it land feels broken; the reload below reconciles.
+    const next = new Map(reactions);
+    next.set(
+      message.id,
+      mine
+        ? current.filter((r) => !(r.emoji === emoji && r.account_id === session.id))
+        : [...current, { emoji, account_id: session.id }]
+    );
+    setReactions(next);
+
+    try {
+      await toggleReaction(message.id, session.id, emoji, mine);
+    } catch (e) {
+      console.error(e);
+    }
+    setReactions(await getReactions(messages.map((m) => m.id)));
+  };
+
+  const handleDelete = async (message) => {
+    try {
+      await deleteMessageForEveryone(message.id);
+      await loadMessages();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  /** Resolves a reply_to_id into something the bubble can quote. */
+  const quoteFor = (message) => {
+    if (!message.reply_to_id) return null;
+    const original = messages.find((m) => m.id === message.reply_to_id);
+    // Not found means it was deleted, expired, or scrolled out of the 200 the
+    // thread loads. The bubble renders "original message unavailable" either
+    // way, which is honest without pretending to know which.
+    if (!original || original.deleted_at) return null;
+
+    const member = members.find((m) => m.id === original.sender_id);
+    return {
+      senderName:
+        original.sender_id === session.id
+          ? 'You'
+          : member?.display_name || member?.username || otherUser?.display_name || otherUser?.username || 'Unknown',
+      preview:
+        original.message_type === 'text'
+          ? original.content || ''
+          : original.message_type === 'image'
+            ? '📷 Photo'
+            : original.message_type === 'video'
+              ? '🎥 Video'
+              : original.message_type === 'voice'
+                ? '🎤 Voice message'
+                : '📎 Attachment',
+    };
+  };
+
+  const applyMute = async (hours) => {
+    try {
+      const row = await muteConversation(session.id, conversationId, hours);
+      setMute(row);
+    } catch (e) {
+      console.error(e);
+    }
+    setShowMute(false);
+  };
+
+  const removeMute = async () => {
+    try {
+      await unmuteConversation(conversationId);
+      setMute(null);
+    } catch (e) {
+      console.error(e);
+    }
+    setShowMute(false);
   };
 
   const setTimer = async (seconds) => {
@@ -153,6 +292,55 @@ export default function ChatView() {
           <Flag className="w-5 h-5" />
         </button>
         <div className="relative">
+          <button
+            onClick={() => setShowMute(!showMute)}
+            aria-label={mute ? 'Muted — change' : 'Mute this conversation'}
+            className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition"
+          >
+            {mute ? <BellOff className="w-5 h-5 text-primary" /> : <Bell className="w-5 h-5" />}
+          </button>
+          {showMute && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowMute(false)} />
+              <div className="absolute right-0 top-11 z-50 bg-card border border-border rounded-xl shadow-xl py-1 w-56">
+                <p className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Notifications
+                </p>
+                {mute ? (
+                  <>
+                    <p className="px-3 pb-1.5 text-xs text-muted-foreground">
+                      {mute.muted_until
+                        ? `Muted until ${new Date(mute.muted_until).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
+                        : 'Muted indefinitely'}
+                    </p>
+                    <button
+                      onClick={removeMute}
+                      className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-secondary transition"
+                    >
+                      Unmute
+                    </button>
+                  </>
+                ) : (
+                  MUTE_OPTIONS.map((option) => (
+                    <button
+                      key={option.label}
+                      onClick={() => applyMute(option.hours)}
+                      className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-secondary transition"
+                    >
+                      {option.label}
+                    </button>
+                  ))
+                )}
+                {/* Muting stops the push, not the message. Worth saying — people
+                    reasonably wonder whether they are also blocking someone. */}
+                <p className="px-3 pt-1.5 pb-1 text-[11px] text-muted-foreground border-t border-border mt-1">
+                  You still receive messages. Your phone just stays quiet.
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="relative">
           <button onClick={() => setShowTimer(!showTimer)} className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
             <Flame className={`w-5 h-5 ${conversation.disappearing_timer > 0 ? 'text-primary' : ''}`} />
           </button>
@@ -197,14 +385,55 @@ export default function ChatView() {
               const member = members.find((m) => m.id === msg.sender_id);
               senderName = member?.display_name || member?.username || 'Unknown';
             }
-            return <MessageBubble key={msg.id} message={msg} isOwn={isOwn} senderName={senderName} showSender={showSender} />;
+            return (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                isOwn={isOwn}
+                senderName={senderName}
+                showSender={showSender}
+                replyTo={quoteFor(msg)}
+                reactions={reactions.get(msg.id) || []}
+                myAccountId={session.id}
+                onReply={setReplyTo}
+                onEdit={setEditing}
+                onDelete={handleDelete}
+                onReact={handleReact}
+              />
+            );
           })}
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      <MessageInput onSend={handleSend} />
+      {typingNames.length > 0 && (
+        <div className="px-4 pb-1 bg-secondary">
+          <p className="max-w-3xl mx-auto w-full text-xs text-muted-foreground flex items-center gap-1.5">
+            {/* Three dots that stagger rather than pulse together — a flat
+                blinking row reads as a loading spinner, not as someone typing. */}
+            <span className="flex gap-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
+            </span>
+            {typingNames.length === 1
+              ? `${typingNames[0]} is typing`
+              : typingNames.length === 2
+                ? `${typingNames[0]} and ${typingNames[1]} are typing`
+                : `${typingNames.length} people are typing`}
+          </p>
+        </div>
+      )}
+
+      <MessageInput
+        onSend={handleSend}
+        replyTo={replyTo ? quoteFor({ reply_to_id: replyTo.id }) : null}
+        onCancelReply={() => setReplyTo(null)}
+        editing={editing}
+        onCancelEdit={() => setEditing(null)}
+        onTyping={() => typingRef.current?.notifyTyping()}
+      />
       <ReportDialog open={showReport} onClose={() => setShowReport(false)} reportedId={otherUser?.id || ''} reportedName={otherUser?.display_name || otherUser?.username || ''} />
     </div>
   );

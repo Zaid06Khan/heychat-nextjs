@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getSession, logout, getCurrentAccount } from '@/lib/heychatAuth';
-import { MessageCircle, Users, User, Plus, Search } from 'lucide-react';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { getMutes } from '@/lib/notifications/mutes';
+import { MessageCircle, Users, User, Plus, Search, BellOff } from 'lucide-react';
 import Avatar from './Avatar';
 import Logo from './Logo';
 import GroupCreateDialog from './GroupCreateDialog';
@@ -18,52 +20,121 @@ export default function ConversationList() {
 
   useEffect(() => {
     if (!session) return;
-    let unsubMsg, unsubConv;
+
+    // One channel for both tables, not two.
+    //
+    // Before: Message.subscribe() and Conversation.subscribe() each opened
+    // their own channel through the shim, and each fired a full reload of every
+    // conversation on ANY change — so one incoming message cost two complete
+    // refetches. Realtime enforces RLS, so the events were at least already
+    // scoped to this user's rows; the waste was in the response, not the feed.
+    const supabase = getSupabaseBrowserClient();
+    const channel = supabase.channel(`conversation-list:${session.id}`);
+
+    // Bursts are normal — sending a message writes a row and often touches the
+    // conversation moments later. Collapsing them into one reload turns a
+    // flurry into a single refetch, and 250ms is below the threshold where a
+    // list feels slow to update.
+    let timer = null;
+    const reload = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => loadConversations(), 250);
+    };
+
     (async () => {
       const acc = await getCurrentAccount();
       setAccount(acc);
       await loadConversations();
-      unsubMsg = base44.entities.Message.subscribe(() => loadConversations());
-      unsubConv = base44.entities.Conversation.subscribe(() => loadConversations());
+
+      channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, reload)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, reload)
+        .subscribe();
     })();
+
     return () => {
-      if (unsubMsg) unsubMsg();
-      if (unsubConv) unsubConv();
+      clearTimeout(timer);
+      supabase.removeChannel(channel);
     };
   }, []);
 
+  /**
+   * Four queries, regardless of how many conversations there are: the
+   * conversations, the other participants, the last message of each, and the
+   * mutes. It used to be 1 + 2N.
+   */
   const loadConversations = async () => {
     try {
+      const supabase = getSupabaseBrowserClient();
+
       const convs = await base44.entities.Conversation.filter(
         { participant_ids: session.id }, '-updated_date', 50
       );
-      const enriched = await Promise.all(
-        convs.map(async (conv) => {
-          let name = 'Conversation', avatar = '', online = false;
-          if (conv.type === 'group') {
-            name = conv.name || 'Group';
-            avatar = conv.cover_image;
-          } else {
-            const otherId = conv.participant_ids.find((id) => id !== session.id);
-            if (otherId) {
-              try {
-                const acc = await base44.entities.Account.get(otherId);
-                name = acc.display_name || acc.username;
-                avatar = acc.avatar;
-                online = acc.is_online;
-              } catch {}
-            }
-          }
-          let lastMsg = null;
-          try {
-            const msgs = await base44.entities.Message.filter(
-              { conversation_id: conv.id }, '-created_date', 1
-            );
-            lastMsg = msgs[0];
-          } catch {}
-          return { ...conv, displayName: name, displayAvatar: avatar, online, lastMsg };
-        })
-      );
+
+      if (convs.length === 0) {
+        setConversations([]);
+        return;
+      }
+
+      const convIds = convs.map((c) => c.id);
+
+      // Every "other participant" across every direct conversation, in one go.
+      const otherIds = [
+        ...new Set(
+          convs
+            .filter((c) => c.type !== 'group')
+            .map((c) => c.participant_ids.find((id) => id !== session.id))
+            .filter(Boolean)
+        ),
+      ];
+
+      const [accountsRes, lastMsgRes, mutes] = await Promise.all([
+        otherIds.length
+          ? supabase.from('accounts').select('id, username, display_name, avatar, is_online').in('id', otherIds)
+          : Promise.resolve({ data: [] }),
+        // `distinct on` in one round trip — see 0011_conversation_list.sql.
+        supabase.rpc('last_messages_for_conversations', { conv_ids: convIds }),
+        getMutes(convIds),
+      ]);
+
+      const accountsById = new Map((accountsRes.data || []).map((a) => [a.id, a]));
+      const lastByConv = new Map((lastMsgRes.data || []).map((m) => [m.conversation_id, m]));
+
+      const enriched = convs.map((conv) => {
+        const lastMsg = lastByConv.get(conv.id) || null;
+        if (conv.type === 'group') {
+          return {
+            ...conv,
+            displayName: conv.name || 'Group',
+            displayAvatar: conv.cover_image,
+            online: false,
+            lastMsg,
+            muted: mutes.has(conv.id),
+          };
+        }
+        const other = accountsById.get(conv.participant_ids.find((id) => id !== session.id));
+        return {
+          ...conv,
+          displayName: other?.display_name || other?.username || 'Conversation',
+          displayAvatar: other?.avatar || '',
+          online: Boolean(other?.is_online),
+          lastMsg,
+          muted: mutes.has(conv.id),
+        };
+      });
+
+      // Sorted by last message, not by conversations.updated_date.
+      //
+      // The query above orders by updated_date because that is what the shim
+      // can express, but nothing bumps a conversation row when a message
+      // arrives — so on that ordering a brand-new message did not move its
+      // conversation to the top, which is the one thing this list is for.
+      enriched.sort((a, b) => {
+        const at = new Date(a.lastMsg?.created_date || a.updated_date).getTime();
+        const bt = new Date(b.lastMsg?.created_date || b.updated_date).getTime();
+        return bt - at;
+      });
+
       setConversations(enriched);
     } catch (e) {
       console.error(e);
@@ -147,6 +218,7 @@ export default function ConversationList() {
                   {getLastMessagePreview(conv.lastMsg)}
                 </p>
               </div>
+              {conv.muted && <BellOff className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
               {conv.disappearing_timer > 0 && <span className="text-sm">🔥</span>}
             </Link>
           ))

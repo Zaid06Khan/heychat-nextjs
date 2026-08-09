@@ -2,6 +2,7 @@
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { generateDeviceFingerprint } from './deviceFingerprint';
+import { disablePush } from '@/lib/push/client';
 
 /**
  * Same exported functions and signatures as the Base44 version, so no component
@@ -129,6 +130,18 @@ export async function login({ username, password }) {
 }
 
 export async function logout() {
+  // Before the session goes, not after — /api/push/unsubscribe authenticates as
+  // the caller, so once the cookie is cleared there is no way to say which
+  // subscription to remove. Left behind, this device would keep receiving the
+  // departed account's messages on its lock screen, which on a shared or handed
+  // -on phone is a real leak rather than an annoyance.
+  try {
+    await disablePush();
+  } catch {
+    // Never block a logout on this. A stale endpoint gets pruned server-side on
+    // its first 410.
+  }
+
   try {
     await postJson('/api/auth/logout');
   } catch {
@@ -302,36 +315,14 @@ export async function getSuggestions() {
 }
 
 /**
- * Sweep expired disappearing messages.
+ * `cleanupExpiredMessages()` used to live here.
  *
- * Still a best-effort client sweep, same as before — it only runs while someone
- * has the app open. The messages_delete_sender policy permits it (any member may
- * delete an already-expired message in their conversation), so it is safe, but a
- * scheduled server job should own this. See FOLLOWUPS.md.
+ * It swept expired disappearing messages from the browser on app start, which
+ * meant a message set to vanish after 30 seconds vanished 30 seconds after the
+ * next time somebody happened to open HeyChat — and never at all in a
+ * conversation nobody returned to. It also left the attachments behind.
+ *
+ * Both halves are now server-side and run whether or not anyone is looking:
+ * `delete_expired_messages()` on a pg_cron schedule, and
+ * /api/cron/sweep-media for the storage objects. See 0010_expiry_sweep.sql.
  */
-export async function cleanupExpiredMessages() {
-  const supabase = getSupabaseBrowserClient();
-  const session = getSession();
-  if (!session) return;
-
-  try {
-    const { data: convs } = await supabase
-      .from('conversations')
-      .select('id')
-      .contains('participant_ids', [session.id])
-      .limit(50);
-
-    if (!convs?.length) return;
-
-    await supabase
-      .from('messages')
-      .delete()
-      .in(
-        'conversation_id',
-        convs.map((c) => c.id)
-      )
-      .lt('expiry_at', new Date().toISOString());
-  } catch (e) {
-    console.error(e);
-  }
-}
