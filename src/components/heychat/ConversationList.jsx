@@ -29,7 +29,6 @@ export default function ConversationList() {
     // refetches. Realtime enforces RLS, so the events were at least already
     // scoped to this user's rows; the waste was in the response, not the feed.
     const supabase = getSupabaseBrowserClient();
-    const channel = supabase.channel(`conversation-list:${session.id}`);
 
     // Bursts are normal — sending a message writes a row and often touches the
     // conversation moments later. Collapsing them into one reload turns a
@@ -41,15 +40,29 @@ export default function ConversationList() {
       timer = setTimeout(() => loadConversations(), 250);
     };
 
+    // Unique topic per mount. supabase.channel() hands back the EXISTING
+    // channel for a topic it already knows, so a fixed name meant a remount
+    // got a channel that was already subscribed — and attaching handlers to a
+    // subscribed channel throws "cannot add postgres_changes callbacks after
+    // subscribe()". React StrictMode double-invokes effects in dev, so this
+    // fired on every load.
+    const channel = supabase.channel(
+      `conversation-list:${session.id}:${Math.random().toString(36).slice(2)}`
+    );
+
+    // Registered synchronously, before any await. These used to sit inside the
+    // async block below, which left a window of two round trips between
+    // creating the channel and configuring it — long enough for the cleanup
+    // and a second mount to interleave.
+    channel
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, reload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, reload)
+      .subscribe();
+
     (async () => {
       const acc = await getCurrentAccount();
       setAccount(acc);
       await loadConversations();
-
-      channel
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, reload)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, reload)
-        .subscribe();
     })();
 
     return () => {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Image } from '@/components/ui/image';
 import { Check, CheckCheck, Flame, FileText, MoreHorizontal, Reply, Pencil, Trash2, SmilePlus } from 'lucide-react';
 import { useSignedMedia } from '@/lib/media/useSignedMedia';
@@ -19,6 +19,8 @@ export default function MessageBubble({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(true);
+  const triggerRef = useRef(null);
 
   const time = new Date(message.created_date || message.sent_at).toLocaleTimeString([], {
     hour: '2-digit',
@@ -44,6 +46,32 @@ export default function MessageBubble({
 
   const closeMenus = () => {
     setMenuOpen(false);
+    setPickerOpen(false);
+  };
+
+  /**
+   * Decides which way the menu opens before showing it.
+   *
+   * It used to always open upward. The thread scrolls inside an `overflow-y-auto`
+   * container, so for any message near the top of it the menu was pushed past
+   * the container's edge and clipped — invisible, unclickable, and sitting
+   * behind the sticky header. That is not an edge case: a new conversation with
+   * three messages has all three near the top.
+   *
+   * Measured against the viewport rather than the scroll container because the
+   * container occupies nearly all of it, and one getBoundingClientRect beats
+   * threading a ref down from ChatView for the few pixels of difference.
+   */
+  const MENU_HEIGHT = 210;
+
+  const openMenu = () => {
+    if (menuOpen || pickerOpen) {
+      closeMenus();
+      return;
+    }
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) setOpenUp(rect.top > MENU_HEIGHT);
+    setMenuOpen(true);
     setPickerOpen(false);
   };
 
@@ -115,7 +143,8 @@ export default function MessageBubble({
         {!isDeleted && (
           <div className="relative self-center shrink-0">
             <button
-              onClick={() => { setMenuOpen(!menuOpen); setPickerOpen(false); }}
+              ref={triggerRef}
+              onClick={openMenu}
               aria-label="Message actions"
               className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition opacity-60 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100"
             >
@@ -126,7 +155,7 @@ export default function MessageBubble({
               <>
                 <div className="fixed inset-0 z-40" onClick={closeMenus} />
                 <div
-                  className={`absolute z-50 bottom-9 ${isOwn ? 'right-0' : 'left-0'} bg-card border border-border rounded-xl shadow-xl py-1 w-44`}
+                  className={`absolute z-50 ${openUp ? 'bottom-9' : 'top-9'} ${isOwn ? 'right-0' : 'left-0'} bg-card border border-border rounded-xl shadow-xl py-1 w-44`}
                 >
                   {pickerOpen ? (
                     <div className="flex items-center justify-between px-2 py-1">
