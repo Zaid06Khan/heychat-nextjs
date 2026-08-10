@@ -24,6 +24,12 @@
  *
  * Like the e2e suite, this talks to the REAL Supabase project in .env.local and
  * creates real users. It deletes them again at the end.
+ *
+ * IT CREATES FOUR ACCOUNTS PER RUN, and /api/auth/register allows 20 per hour
+ * per IP — so this can run about five times an hour before registration starts
+ * returning 429. The limiter keeps counters in process memory, so restarting
+ * the dev server clears them. register() detects the 429 and says so; without
+ * that it surfaced as a bare navigation timeout that looked like a broken form.
  */
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
@@ -72,6 +78,24 @@ const check = (ok, label, extra = '') => {
 };
 
 /**
+ * Wait for a condition instead of sleeping and hoping.
+ *
+ * These replace the fixed `waitForTimeout` calls this file used to be built
+ * from. A fixed sleep is wrong in both directions: too short and the suite
+ * flakes on a slow round trip, too long and every run pays for the worst case.
+ * `seen`/`gone` return a boolean rather than throwing, so a genuine failure is
+ * still reported as a FAIL with a label rather than aborting the whole run.
+ *
+ * The timeouts here are ceilings, not delays — a passing assertion returns as
+ * soon as the condition holds, usually in tens of milliseconds.
+ */
+const seen = (page, selector, timeout = 15000) =>
+  page.waitForSelector(selector, { state: 'visible', timeout }).then(() => true).catch(() => false);
+
+const gone = (page, selector, timeout = 10000) =>
+  page.waitForSelector(selector, { state: 'hidden', timeout }).then(() => true).catch(() => false);
+
+/**
  * Opens the action menu on the bubble containing `text`.
  *
  * Scoped to that bubble on purpose: taking the last action button in the DOM
@@ -84,16 +108,21 @@ const check = (ok, label, extra = '') => {
  */
 const openMsgMenu = async (page, text) => {
   const bubble = page.locator('div.group').filter({ hasText: text }).first();
+  // Waits for the bubble to exist rather than assuming the thread has rendered.
+  await bubble.waitFor({ state: 'visible', timeout: 15000 });
   await bubble.hover();
-  await page.waitForTimeout(300);
   await bubble.locator('button[aria-label="Message actions"]').click({ force: true });
-  await page.waitForTimeout(600);
+  // The menu, not a guess at how long it takes to appear. Reply is in every
+  // variant of the menu — own message or not — so it is the safe thing to wait
+  // for; Edit and Delete are conditional on ownership.
+  await page.waitForSelector('button:has-text("Reply")', { state: 'visible', timeout: 10000 })
+    .catch(() => {});
 };
 
 /** The menu's click-away backdrop covers the viewport; any click closes it. */
 const closeMenu = async (page) => {
   await page.mouse.click(5, 400);
-  await page.waitForTimeout(400);
+  await gone(page, 'button:has-text("Reply")', 5000);
 };
 
 const watchConsole = (page, who) => {
@@ -116,8 +145,33 @@ const register = async (page, username) => {
   await inputs.nth(3).fill(PW);
   await inputs.nth(4).fill(RECOVERY);
   await inputs.nth(5).fill(RECOVERY);
-  await page.waitForTimeout(1500); // let the username-availability check settle
+  // The submit button is disabled while the username check is outstanding, so
+  // wait for its verdict rather than for a fixed number of milliseconds.
+  await seen(page, 'text=Username is available', 15000);
+
+  // Watch the actual response. Without this, a rejected registration surfaces
+  // only as "waitForURL timeout" — which says nothing about why, and sent me
+  // looking for a bug in the form when the real answer was a rate limit.
+  const responded = page
+    .waitForResponse((r) => r.url().includes('/api/auth/register'), { timeout: 25000 })
+    .catch(() => null);
   await page.click('button[type="submit"]');
+  const res = await responded;
+
+  if (res && res.status() === 429) {
+    throw new Error(
+      'registration is rate limited — 20 accounts per hour per IP ' +
+        '(register: in src/lib/auth/rateLimit.js). This suite creates FOUR ' +
+        'accounts per run, so it can only run about five times an hour. The ' +
+        'limiter keeps its counters in process memory, so restarting the dev ' +
+        'server clears them immediately.'
+    );
+  }
+  if (res && !res.ok()) {
+    const body = await res.json().catch(() => null);
+    throw new Error(`registration failed: HTTP ${res.status()} ${body?.error || ''}`);
+  }
+
   await page.waitForURL(/\/home/, { timeout: 25000 });
 };
 
@@ -145,44 +199,41 @@ try {
   console.log('\n--- 2. CONTACTS AND CONVERSATION ---');
   await A.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
   await A.fill('input[placeholder="Search by username..."]', userB);
-  await A.waitForTimeout(2500);
-  check(await A.locator(`text=@${userB}`).first().isVisible().catch(() => false),
-    'A can find B by username search');
+  check(await seen(A, `text=@${userB}`), 'A can find B by username search');
   await A.locator('button:has-text("Add")').first().click();
-  await A.waitForTimeout(1500);
-  check(await A.locator('text=Sent').first().isVisible().catch(() => false),
-    'the request is sent');
+  check(await seen(A, 'text=Sent'), 'the request is sent');
 
   await B.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
   await B.locator('button:has-text("Requests")').click();
-  await B.waitForTimeout(1500);
-  const acceptBtn = B.locator('button[aria-label^="Accept contact request"]').first();
-  const hasRequest = await acceptBtn.isVisible().catch(() => false);
+  const hasRequest = await seen(B, 'button[aria-label^="Accept contact request"]');
   check(hasRequest, 'B sees the incoming contact request');
   if (!hasRequest) throw new Error('no contact request — cannot continue to messaging');
   // Accepting is what creates the conversation (Contacts.jsx acceptRequest).
-  await acceptBtn.click();
-  await B.waitForTimeout(2500);
-  check(true, 'B accepts, which creates the conversation');
+  await B.locator('button[aria-label^="Accept contact request"]').first().click();
+  // The accept button disappearing is the signal the request was processed.
+  check(await gone(B, 'button[aria-label^="Accept contact request"]'),
+    'B accepts, which creates the conversation');
 
   console.log('\n--- 3. MESSAGING ---');
   await B.goto(`${APP}/home`, { waitUntil: 'domcontentloaded' });
-  await B.waitForTimeout(1500);
+  // Wait for the list to actually contain A rather than for the page to have
+  // been open a while — this is the query the conversation-list RPC feeds.
+  check(await seen(B, `text=${userA}`), 'the new conversation appears in B\'s list');
   await B.locator(`text=${userA}`).first().click();
   await B.waitForURL(/\/chat\//, { timeout: 15000 });
   const convUrl = B.url();
   check(true, 'B opens the conversation', convUrl);
 
   await A.goto(convUrl, { waitUntil: 'domcontentloaded' });
-  await A.waitForTimeout(2000);
+  // A must be subscribed before B sends, or the realtime assertion below tests
+  // nothing. The composer rendering is the proxy for "ChatView has mounted".
+  await seen(A, 'textarea');
 
   await B.fill('textarea', 'hello from B');
   await B.keyboard.press('Enter');
-  await B.waitForTimeout(2500);
-  check(await B.locator('text=hello from B').first().isVisible(), 'B sends a message and sees it');
+  check(await seen(B, 'text=hello from B'), 'B sends a message and sees it');
 
-  await A.waitForSelector('text=hello from B', { timeout: 15000 }).catch(() => {});
-  check(await A.locator('text=hello from B').first().isVisible().catch(() => false),
+  check(await seen(A, 'text=hello from B'),
     'A receives it over realtime without reloading');
 
   console.log('\n--- 4. TYPING INDICATOR ---');
@@ -191,17 +242,16 @@ try {
   // so if the 0013 policies are missing this silently shows nothing.
   await A.click('textarea');
   await A.type('textarea', 'typing a reply', { delay: 60 });
-  const sawTyping = await B.waitForSelector('text=/is typing/i', { timeout: 12000 })
-    .then(() => true)
-    .catch(() => false);
-  check(sawTyping, 'B sees "is typing" while A types');
+  check(await seen(B, 'text=/is typing/i', 12000), 'B sees "is typing" while A types');
 
   const typingWarn = consoleErrors.filter((e) => e.includes('[typing]'));
   check(typingWarn.length === 0, 'no typing-channel refusal in the console', typingWarn[0] || '');
 
   await A.keyboard.press('Enter');
-  await A.waitForTimeout(2500);
-  check(!(await B.locator('text=/is typing/i').isVisible().catch(() => false)),
+  // Waits for it to actually go, rather than sleeping past the 4s TTL and
+  // asserting after. This also proves the explicit "stopped" broadcast works:
+  // a 5s ceiling would not be met by the timeout path alone.
+  check(await gone(B, 'text=/is typing/i', 5000),
     'the indicator clears once the message is sent');
 
   console.log('\n--- 5. REPLIES, REACTIONS, EDIT, DELETE ---');
@@ -210,48 +260,38 @@ try {
     'the message action menu opens on your own message');
 
   await A.locator('button:has-text("React")').click();
-  await A.waitForTimeout(500);
+  await seen(A, 'button:has-text("👍")');
   await A.locator('button:has-text("👍")').first().click();
-  await A.waitForTimeout(2000);
-  check(await A.locator('text=👍').first().isVisible().catch(() => false),
-    'a reaction renders on the bubble');
+  check(await seen(A, 'text=👍'), 'a reaction renders on the bubble');
 
   // Reactions are deliberately NOT in the realtime feed yet (FOLLOWUPS #11), so
   // this asserts what the app actually promises: B sees it on next load.
   await B.reload({ waitUntil: 'domcontentloaded' });
-  await B.waitForTimeout(3500);
-  check(await B.locator('text=👍').first().isVisible().catch(() => false),
+  check(await seen(B, 'text=👍'),
     'and B sees it after reloading (reactions are not realtime yet)');
 
   await openMsgMenu(B, 'typing a reply');
   await B.locator('button:has-text("Reply")').click();
-  await B.waitForTimeout(600);
-  check(await B.locator('text=/Replying to/i').isVisible().catch(() => false),
-    'the reply composer bar appears');
+  check(await seen(B, 'text=/Replying to/i'), 'the reply composer bar appears');
   await B.fill('textarea', 'this is a reply');
   await B.keyboard.press('Enter');
-  await B.waitForTimeout(2500);
-  check(await B.locator('text=this is a reply').first().isVisible().catch(() => false),
-    'the reply sends');
-  check((await B.locator('text=/Replying to/i').isVisible().catch(() => false)) === false,
-    'and the reply bar clears after sending');
+  check(await seen(B, 'text=this is a reply'), 'the reply sends');
+  check(await gone(B, 'text=/Replying to/i'), 'and the reply bar clears after sending');
 
-  await A.waitForTimeout(2500);
+  // A's thread has to have caught up with B's reply before the menu is opened,
+  // or `openMsgMenu` races the re-render that the reply triggers.
+  await seen(A, 'text=this is a reply');
   await openMsgMenu(A, 'typing a reply');
   const editVisible = await A.locator('button:has-text("Edit")').isVisible().catch(() => false);
   check(editVisible, 'Edit is offered on your own text message');
   if (editVisible) {
     await A.locator('button:has-text("Edit")').click();
-    await A.waitForTimeout(600);
-    check(await A.locator('text=Editing message').isVisible().catch(() => false),
+    check(await seen(A, 'text=Editing message'),
       'the edit bar appears with the original text loaded');
     await A.fill('textarea', 'edited message text');
     await A.keyboard.press('Enter');
-    await A.waitForTimeout(2500);
-    check(await A.locator('text=edited message text').first().isVisible().catch(() => false),
-      'the edit saves');
-    check(await A.locator('span:has-text("edited")').first().isVisible().catch(() => false),
-      'and shows an "edited" marker');
+    check(await seen(A, 'text=edited message text'), 'the edit saves');
+    check(await seen(A, 'span:has-text("edited")'), 'and shows an "edited" marker');
   } else {
     await closeMenu(A);
   }
@@ -261,10 +301,8 @@ try {
   check(delVisible, 'Delete for everyone is offered');
   if (delVisible) {
     await A.locator('button:has-text("Delete for everyone")').click();
-    await A.waitForTimeout(2500);
-    check(await A.locator('text=This message was deleted').first().isVisible().catch(() => false),
-      'the message becomes a tombstone');
-    check((await A.locator('text=edited message text').isVisible().catch(() => false)) === false,
+    check(await seen(A, 'text=This message was deleted'), 'the message becomes a tombstone');
+    check(await gone(A, 'text=edited message text'),
       'and the original text is gone from the page');
   } else {
     await closeMenu(A);
@@ -273,21 +311,18 @@ try {
   console.log('\n--- 6. MUTE AND NOTIFICATION SETTINGS ---');
   const bell = A.locator('button[aria-label*="ute this conversation"], button[aria-label*="Muted"]').first();
   await bell.click();
-  await A.waitForTimeout(600);
-  check(await A.locator('text=For 8 hours').isVisible().catch(() => false),
-    'the mute menu opens with duration options');
+  check(await seen(A, 'text=For 8 hours'), 'the mute menu opens with duration options');
   await A.locator('button:has-text("For 8 hours")').click();
-  await A.waitForTimeout(2000);
+  // The menu closes on selection; reopening before that lands would read the
+  // old state and report a false failure.
+  await gone(A, 'text=For 8 hours');
   await bell.click();
-  await A.waitForTimeout(600);
-  check(await A.locator('text=/Muted until/i').isVisible().catch(() => false),
-    'muting sticks and shows the expiry');
+  check(await seen(A, 'text=/Muted until/i'), 'muting sticks and shows the expiry');
   await A.locator('button:has-text("Unmute")').click();
-  await A.waitForTimeout(1500);
+  await gone(A, 'text=/Muted until/i');
 
   await A.goto(`${APP}/settings`, { waitUntil: 'domcontentloaded' });
-  await A.waitForTimeout(2500);
-  check(await A.locator('text=Message notifications').isVisible().catch(() => false),
+  check(await seen(A, 'text=Message notifications'),
     'the Notifications panel renders in Settings');
 
   // No worker before permission is granted — deliberate, there is nothing for
@@ -316,10 +351,8 @@ try {
 
   console.log('\n--- 7. CONVERSATION LIST ---');
   await A.goto(`${APP}/home`, { waitUntil: 'domcontentloaded' });
-  await A.waitForTimeout(3000);
-  check(await A.locator(`text=${userB}`).first().isVisible().catch(() => false),
-    'the conversation list shows the other person');
-  check(await A.locator('text=this is a reply').first().isVisible().catch(() => false),
+  check(await seen(A, `text=${userB}`), 'the conversation list shows the other person');
+  check(await seen(A, 'text=this is a reply'),
     'and the last message preview is the most recent one');
 
   console.log('\n--- 9. PHONE WIDTH (390x844) ---');
@@ -382,7 +415,9 @@ try {
   };
 
   await M.goto(`${APP}/home`, { waitUntil: 'domcontentloaded' });
-  await M.waitForTimeout(3000);
+  // Measuring width before the list has rendered would measure an empty page,
+  // which cannot overflow and would pass regardless.
+  await seen(M, 'nav:visible');
   await noOverflow(M, '/home');
   // `:visible`, not a raw count: AppLayout renders BottomNav twice — once in
   // the sidebar (`hidden md:flex`) and once for mobile (`md:hidden`). Both are
@@ -394,10 +429,11 @@ try {
   check(navCount === 4, 'and it shows four items (Earn is gone)', `got ${navCount}`);
 
   await M.goto(`${APP}/chat/${mConv.id}`, { waitUntil: 'domcontentloaded' });
-  await M.waitForTimeout(3000);
+  // The long-word message specifically — that is the one under test, and it is
+  // the last of the three to render.
+  await seen(M, 'text=/supercalifragilistic/');
   await noOverflow(M, '/chat with a long unbroken word');
-  check(await M.locator('textarea').isVisible().catch(() => false),
-    'the composer is visible on a phone');
+  check(await seen(M, 'textarea'), 'the composer is visible on a phone');
 
   // The action menu is w-44 (176px) inside a 390px viewport, anchored to the
   // bubble. On an own message (right-aligned) it anchors right; on a received
@@ -429,16 +465,14 @@ try {
 
   // Reply bar at phone width.
   await M.locator('button:has-text("Reply")').click();
-  await M.waitForTimeout(600);
-  check(await M.locator('text=/Replying to/i').isVisible().catch(() => false),
-    'the reply bar renders on a phone');
+  check(await seen(M, 'text=/Replying to/i'), 'the reply bar renders on a phone');
   await noOverflow(M, '/chat with the reply bar open');
 
   await M.goto(`${APP}/settings`, { waitUntil: 'domcontentloaded' });
-  await M.waitForTimeout(2500);
+  await seen(M, 'text=Message notifications');
   await noOverflow(M, '/settings');
   await M.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
-  await M.waitForTimeout(2500);
+  await seen(M, 'input[placeholder="Search by username..."]');
   await noOverflow(M, '/contacts');
 
   console.log('\n--- 8. CONSOLE ---');

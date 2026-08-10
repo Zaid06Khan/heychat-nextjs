@@ -105,7 +105,7 @@ npx playwright install chromium    # once
 npm run test:browser -- http://localhost:3000
 ```
 
-**46 assertions, and it is not the same thing as `test:e2e`.** That suite talks
+**47 assertions, and it is not the same thing as `test:e2e`.** That suite talks
 to Supabase directly and proves the boundaries hold; it never renders a
 component. This drives the real UI in two browser contexts as two real users —
 register, contact request, accept, send, typing indicator, reaction, reply,
@@ -135,6 +135,11 @@ Push **delivery** is out of reach here: headless Chromium reports
 `Notification.permission` as `denied`, so the app correctly declines to register
 the worker. That path needs real Chrome — turn notifications on in Settings,
 then `npm run push:test -- <username>`.
+
+> **It creates four accounts per run**, and `/api/auth/register` allows 20 per
+> hour per IP — so roughly five runs an hour before registration starts
+> returning 429. The limiter keeps its counters in process memory, so
+> restarting the dev server clears them.
 
 ## Architecture
 
