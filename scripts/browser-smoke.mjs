@@ -51,6 +51,14 @@ const APP = process.argv[2] || 'http://localhost:3000';
 const stamp = Date.now().toString().slice(-6);
 const userA = `pw_a_${stamp}`;
 const userB = `pw_b_${stamp}`;
+const userM = `pw_m_${stamp}`;
+const userN = `pw_n_${stamp}`;
+
+// Everything created here gets deleted in the finally block. Tracked in a list
+// because the mobile pass needs its own pair: the device fingerprint includes
+// screen size, so an account registered at desktop width cannot sign in from a
+// phone-sized context — the check correctly refuses it.
+const createdUsers = [userA, userB];
 const PW = 'CorrectHorse9';
 const RECOVERY = 'RecoveryHorse9';
 
@@ -314,6 +322,125 @@ try {
   check(await A.locator('text=this is a reply').first().isVisible().catch(() => false),
     'and the last message preview is the most recent one');
 
+  console.log('\n--- 9. PHONE WIDTH (390x844) ---');
+  // FOLLOWUPS #9 carried "nothing has been checked at phone width" for days
+  // because the Chrome extension could not resize below desktop. This app is
+  // mobile-first, so that was the least-verified thing in it.
+  //
+  // A phone context needs its own account: the fingerprint includes screen
+  // size, so an account registered at 1280px cannot sign in at 390px — the
+  // device check correctly refuses it. Which is itself worth knowing, because
+  // it means a user who switches from desktop to phone is locked out (#6).
+  const ctxM = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    deviceScaleFactor: 3,
+  });
+  const M = await ctxM.newPage();
+  watchConsole(M, 'M');
+
+  await register(M, userM);
+  createdUsers.push(userM);
+  check(M.url().includes('/home'), 'a phone-width context can register and sign in');
+
+  // The second party and the thread are built server-side. Driving the whole
+  // contact flow again would test nothing new — what is under test here is
+  // rendering, not the contact handshake.
+  const regN = await fetch(`${APP}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: userN, password: PW, display_name: 'Mobile Peer',
+      recovery_password: RECOVERY, device_fingerprint: 'mobile-peer-fingerprint',
+    }),
+  });
+  const nJson = await regN.json().catch(() => null);
+  createdUsers.push(userN);
+
+  const admin0 = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const { data: mAcc } = await admin0.from('accounts').select('id').eq('username', userM).single();
+  const { data: mConv } = await admin0.from('conversations')
+    .insert({ type: 'direct', participant_ids: [mAcc.id, nJson.account.id] })
+    .select().single();
+  await admin0.from('messages').insert([
+    { conversation_id: mConv.id, sender_id: nJson.account.id, content: 'short one', read_by: [] },
+    { conversation_id: mConv.id, sender_id: mAcc.id, content: 'my own message', read_by: [mAcc.id] },
+    // A long unbroken token is the classic way a chat layout blows its width.
+    { conversation_id: mConv.id, sender_id: nJson.account.id, read_by: [],
+      content: 'supercalifragilistic' + 'x'.repeat(60) + '@example.com' },
+  ]);
+
+  /** The single most useful mobile assertion: does the page scroll sideways? */
+  const noOverflow = async (page, where) => {
+    const o = await page.evaluate(() => ({
+      scrollW: document.documentElement.scrollWidth,
+      innerW: window.innerWidth,
+    }));
+    check(o.scrollW <= o.innerW + 1, `no horizontal overflow on ${where}`,
+      `scrollWidth=${o.scrollW} viewport=${o.innerW}`);
+  };
+
+  await M.goto(`${APP}/home`, { waitUntil: 'domcontentloaded' });
+  await M.waitForTimeout(3000);
+  await noOverflow(M, '/home');
+  // `:visible`, not a raw count: AppLayout renders BottomNav twice — once in
+  // the sidebar (`hidden md:flex`) and once for mobile (`md:hidden`). Both are
+  // in the DOM at every width; CSS decides which one you can see. Counting
+  // nodes gives 8 and means nothing.
+  const visibleNavs = await M.locator('nav:visible').count();
+  check(visibleNavs === 1, 'exactly one bottom nav is visible on a phone', `got ${visibleNavs}`);
+  const navCount = await M.locator('nav:visible a').count();
+  check(navCount === 4, 'and it shows four items (Earn is gone)', `got ${navCount}`);
+
+  await M.goto(`${APP}/chat/${mConv.id}`, { waitUntil: 'domcontentloaded' });
+  await M.waitForTimeout(3000);
+  await noOverflow(M, '/chat with a long unbroken word');
+  check(await M.locator('textarea').isVisible().catch(() => false),
+    'the composer is visible on a phone');
+
+  // The action menu is w-44 (176px) inside a 390px viewport, anchored to the
+  // bubble. On an own message (right-aligned) it anchors right; on a received
+  // one it anchors left. Either can run off the edge.
+  await openMsgMenu(M, 'my own message');
+  const ownMenu = await M.evaluate(() => {
+    const el = [...document.querySelectorAll('div')].find(
+      (d) => d.className.includes('absolute z-50') && d.offsetParent !== null
+    );
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { left: Math.round(r.left), right: Math.round(r.right), vw: window.innerWidth };
+  });
+  check(ownMenu && ownMenu.left >= 0 && ownMenu.right <= ownMenu.vw,
+    'the action menu fits on screen for your own message', JSON.stringify(ownMenu));
+  await closeMenu(M);
+
+  await openMsgMenu(M, 'short one');
+  const theirMenu = await M.evaluate(() => {
+    const el = [...document.querySelectorAll('div')].find(
+      (d) => d.className.includes('absolute z-50') && d.offsetParent !== null
+    );
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { left: Math.round(r.left), right: Math.round(r.right), vw: window.innerWidth };
+  });
+  check(theirMenu && theirMenu.left >= 0 && theirMenu.right <= theirMenu.vw,
+    'the action menu fits on screen for a received message', JSON.stringify(theirMenu));
+
+  // Reply bar at phone width.
+  await M.locator('button:has-text("Reply")').click();
+  await M.waitForTimeout(600);
+  check(await M.locator('text=/Replying to/i').isVisible().catch(() => false),
+    'the reply bar renders on a phone');
+  await noOverflow(M, '/chat with the reply bar open');
+
+  await M.goto(`${APP}/settings`, { waitUntil: 'domcontentloaded' });
+  await M.waitForTimeout(2500);
+  await noOverflow(M, '/settings');
+  await M.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
+  await M.waitForTimeout(2500);
+  await noOverflow(M, '/contacts');
+
   console.log('\n--- 8. CONSOLE ---');
   // Push failures are expected here — headless Chromium has no push service —
   // and so are favicon/manifest 404s. Everything else is ours and is a bug.
@@ -336,13 +463,25 @@ try {
   if (env.SUPABASE_SERVICE_ROLE_KEY) {
     const admin = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
     const { data: rows } = await admin
-      .from('accounts').select('id').in('username', [userA, userB]);
-    for (const row of rows || []) {
-      await admin.auth.admin.deleteUser(row.id).catch(() => {});
+      .from('accounts').select('id').in('username', createdUsers);
+    const ids = (rows || []).map((r) => r.id);
+
+    // Conversations first. participant_ids is an array, not a foreign key, so
+    // it does NOT cascade when the accounts go — deleting the users first would
+    // strand the conversation rows permanently.
+    if (ids.length) {
+      const { data: convs } = await admin
+        .from('conversations').select('id, participant_ids');
+      const mine = (convs || []).filter((c) =>
+        (c.participant_ids || []).some((p) => ids.includes(p))
+      );
+      for (const c of mine) await admin.from('conversations').delete().eq('id', c.id);
     }
-    console.log(`test users deleted (${(rows || []).length})`);
+
+    for (const id of ids) await admin.auth.admin.deleteUser(id).catch(() => {});
+    console.log(`test users deleted (${ids.length})`);
   } else {
-    console.log(`NOTE: no service-role key — ${userA} and ${userB} were left behind.`);
+    console.log(`NOTE: no service-role key — ${createdUsers.join(', ')} were left behind.`);
   }
 
   process.exit(fail ? 1 : 0);

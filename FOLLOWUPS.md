@@ -150,7 +150,28 @@ rows — otherwise a message that has visibly disappeared from a thread lingers 
 the sidebar preview. And the migration degrades rather than fails where pg_cron
 is unavailable: the function still exists, it just needs driving from outside.
 
-## 6. Device binding is a fingerprint, and fingerprints lie — OPEN
+## 6. Device binding is a fingerprint — and it makes multi-device IMPOSSIBLE
+
+**Sharpened 2026-08-10, after the mobile test pass demonstrated it.** This entry
+used to say binding was fragile and broke for innocent reasons. That undersells
+it. `generateDeviceFingerprint()` hashes `navigator.userAgent`,
+`screen.width×height×colorDepth`, timezone, language, `navigator.platform`,
+timezone offset, a canvas render, and `hardwareConcurrency`. Between a laptop
+and a phone, **at least four of those differ**. Not "might drift" — differ,
+always.
+
+So an account registered on a laptop can never be used on a phone, and vice
+versa. One account is one device, permanently, by construction. This was not a
+theory: adding phone-width coverage to `test:browser` required registering a
+*separate account* for the phone context, because signing the desktop one in was
+correctly refused.
+
+For a messaging app in 2026 that is a product-defining constraint, and it is
+currently undocumented anywhere a user would see it. It also interacts badly
+with #3 (E2E encryption needs a real multi-device design) and with push, where
+"per device" notification settings imply multiple devices are expected.
+
+The original entry, still accurate on everything else:
 
 Accounts are bound to a browser fingerprint (user-agent, screen size, canvas
 render, timezone). The check is server-side, so the browser cannot skip it — but
@@ -165,8 +186,17 @@ be honest about what it is:
   who never set one and whose fingerprint drifts has lost the account forever.
 
 Options: drop binding in favour of ordinary sessions with a device list the user
-can review; or keep it but require a recovery password at signup (currently
-optional) and allow re-binding after recovery.
+can review; or keep it but require a recovery password at signup and allow
+re-binding after recovery.
+
+**On "require a recovery password at signup" — the two layers disagree, which
+this entry previously got wrong by calling it simply "optional".**
+`Register.jsx` marks both recovery fields `required`, so the form will not
+submit without them. `/api/auth/register` does not: the e2e suite registers two
+of its three users with no recovery password at all and gets a 200 each time.
+So the guarantee is a UI convention, and anything posting to the route directly
+bypasses it. Decide which layer is supposed to be authoritative and make the
+other match.
 
 ## 7. Username changes would orphan the auth user — LATENT
 
@@ -253,8 +283,14 @@ from `TABLES` once nothing imports it.
 - **Contacts and Profile still use stock form controls.** The design system
   reached the branded surfaces; plain inputs, selects and tabs were not part of
   that pass.
-- **Nothing has been checked at phone width.** The layout is mobile-first and the
-  nav fix was verified by inspecting the DOM, not by looking at it.
+- ~~Nothing has been checked at phone width.~~ **Checked 2026-08-10** and it
+  passes. `npm run test:browser` now includes a 390×844 pass asserting no
+  horizontal overflow on `/home`, `/chat`, `/settings` and `/contacts` —
+  including with a 70-character unbroken word, the classic way a chat layout
+  blows its width — that exactly one bottom nav is visible, and that the message
+  action menu stays inside the viewport for both sent and received messages.
+  Nothing needed fixing. The reason this sat open so long was tooling: the
+  Chrome extension could not resize below desktop.
 - **Two credentials need rotating.** The Supabase `service_role` key and the
   database password have both been pasted into chat transcripts. The key
   bypasses all RLS.
@@ -338,9 +374,18 @@ Known gaps, in rough order of how soon someone will notice:
 - ~~Typing indicators are untested.~~ **Verified 2026-08-09** by
   `npm run test:browser`, which drives two browser contexts as two real users.
   The `realtime.messages` policies in `0013` work against the live project.
-  Push *delivery* is still the one thing no suite reaches — headless Chromium
-  reports `Notification.permission` as `denied`, so the app correctly declines
-  to register the worker. Real Chrome plus `npm run push:test` is the only way.
+- ~~Push delivery is untested.~~ **Verified 2026-08-09 on a real device.** A
+  throwaway account sent a genuine message and asked `/api/push/notify` for the
+  notification the way the app does — ownership and freshness checks included,
+  no shortcut — and it arrived via FCM (`sent: 1`). No automated suite reaches
+  this: headless Chromium reports `Notification.permission` as `denied`, so the
+  app correctly declines to register a worker there. Re-testing means real
+  Chrome, either `npm run push:test -- <username>` for the delivery plumbing
+  alone, or a second account for the whole path.
+- **Two notification behaviours have never met a real device**: `mute` and
+  `hide_notification_preview`. Both are enforced server-side in the notify route
+  and both are covered by the e2e suite at the database level, but nobody has
+  confirmed that a muted conversation stays silent on an actual phone.
 - **Read receipts are still N updates per thread load** — one RPC call per
   unread message in `ChatView.loadMessages()`. Untouched by the #8 work, which
   only fixed the conversation list.

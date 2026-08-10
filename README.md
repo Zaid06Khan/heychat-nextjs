@@ -105,7 +105,7 @@ npx playwright install chromium    # once
 npm run test:browser -- http://localhost:3000
 ```
 
-**34 assertions, and it is not the same thing as `test:e2e`.** That suite talks
+**46 assertions, and it is not the same thing as `test:e2e`.** That suite talks
 to Supabase directly and proves the boundaries hold; it never renders a
 component. This drives the real UI in two browser contexts as two real users —
 register, contact request, accept, send, typing indicator, reaction, reply,
@@ -122,6 +122,14 @@ fingerprint comes from user-agent, screen size, canvas and timezone, so both
 contexts produce the same one and both accounts can sign in. A genuinely
 different browser would fail the device check — which is also why you must
 *register* a second account when testing by hand, not log an existing one in.
+
+The last section runs at **390×844** and is the only thing that has ever
+rendered this mobile-first app at phone width. It asserts no horizontal overflow
+on `/home`, `/chat`, `/settings` and `/contacts`, that exactly one bottom nav is
+visible, and that the message action menu stays inside the viewport for both
+sent and received messages. It needs its own account, because a phone-sized
+context produces a different fingerprint and cannot sign in as a desktop one —
+see `FOLLOWUPS.md` §6, which is a bigger deal than it sounds.
 
 Push **delivery** is out of reach here: headless Chromium reports
 `Notification.permission` as `denied`, so the app correctly declines to register
