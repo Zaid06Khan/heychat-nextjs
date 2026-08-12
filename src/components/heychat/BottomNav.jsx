@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { MessageCircle, Users, User, Settings } from 'lucide-react';
 import { t } from '@/lib/i18n';
+import { useUnreadTotal } from '@/lib/unread';
 
 const ITEMS = [
   { to: '/home', icon: MessageCircle, label: 'nav.chats' },
@@ -17,6 +18,9 @@ const ITEMS = [
  */
 export default function BottomNav({ className = '' }) {
   const location = useLocation();
+  // Published by ConversationList, which already counts them. No request of
+  // its own — see src/lib/unread.js for why this is a store and not a prop.
+  const unread = useUnreadTotal();
 
   return (
     <nav className={`px-2 pt-2 pb-3 border-t-2 border-foreground bg-background flex items-center justify-around ${className}`}>
@@ -31,7 +35,19 @@ export default function BottomNav({ className = '' }) {
               active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Icon className="w-5 h-5" strokeWidth={2.25} />
+            <span className="relative">
+              <Icon className="w-5 h-5" strokeWidth={2.25} />
+              {/* Only Chats carries a count — it is the only tab where
+                  "something happened while you were away" is a number. */}
+              {to === '/home' && unread > 0 && (
+                <span
+                  aria-label={`${unread} unread`}
+                  className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground border-2 border-background text-[9px] font-extrabold flex items-center justify-center"
+                >
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </span>
             <span className="text-[10px] font-bold tracking-tight">{t(label)}</span>
           </Link>
         );

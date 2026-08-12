@@ -355,6 +355,36 @@ try {
   check(await seen(A, 'text=this is a reply'),
     'and the last message preview is the most recent one');
 
+  // A is sitting on /home, not in the conversation, so a new message from B is
+  // genuinely unread. This is the loop the badge exists for, end to end:
+  // insert -> realtime -> unread_counts RPC -> badge, with no reload.
+  await B.fill('textarea', 'unread ping');
+  await B.keyboard.press('Enter');
+  check(await seen(A, '[aria-label="1 unread"]'),
+    'an unread badge appears in the list without reloading');
+
+  // Opening the conversation marks it read, which must clear the badge —
+  // otherwise the count only ever climbs.
+  //
+  // Wait for the mark_message_read call itself, not for the message to appear.
+  // ChatView renders the thread BEFORE it awaits the read receipts, so the text
+  // is on screen while the RPCs are still in flight — and navigating away right
+  // then cancels them. That is a real (if narrow) product race as well as a
+  // test one: open a thread and leave instantly and it can stay unread. The
+  // waiter is armed before the click so a fast response cannot be missed.
+  const marked = A.waitForResponse(
+    (r) => r.url().includes('mark_message_read'), { timeout: 15000 }
+  ).catch(() => null);
+  await A.locator(`text=${userB}`).first().click();
+  await A.waitForURL(/\/chat\//, { timeout: 15000 });
+  check(await seen(A, 'text=unread ping'), 'the new message is in the thread');
+  check(await marked !== null, 'and opening it marks the message read');
+
+  await A.goto(`${APP}/home`, { waitUntil: 'domcontentloaded' });
+  await seen(A, `text=${userB}`);
+  check(await gone(A, '[aria-label="1 unread"]'),
+    'and it clears once the conversation is opened');
+
   console.log('\n--- 9. PHONE WIDTH (390x844) ---');
   // FOLLOWUPS #9 carried "nothing has been checked at phone width" for days
   // because the Chrome extension could not resize below desktop. This app is

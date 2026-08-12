@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:migrate": "node scripts/migrate.mjs \"$DATABASE_URL\" supabase/migrations/0001_schema.sql supabase/migrations/0002_rls.sql supabase/migrations/0003_storage.sql supabase/migrations/0004_grants.sql supabase/migrations/0005_earnings.sql supabase/migrations/0006_private_media.sql supabase/migrations/0007_drop_earnings.sql supabase/migrations/0008_push_subscriptions.sql supabase/migrations/0009_notification_prefs.sql supabase/migrations/0010_expiry_sweep.sql supabase/migrations/0011_conversation_list.sql supabase/migrations/0012_message_interactions.sql supabase/migrations/0013_typing_channels.sql",
+    "db:migrate": "node scripts/migrate.mjs \"$DATABASE_URL\" supabase/migrations/0001_schema.sql supabase/migrations/0002_rls.sql supabase/migrations/0003_storage.sql supabase/migrations/0004_grants.sql supabase/migrations/0005_earnings.sql supabase/migrations/0006_private_media.sql supabase/migrations/0007_drop_earnings.sql supabase/migrations/0008_push_subscriptions.sql supabase/migrations/0009_notification_prefs.sql supabase/migrations/0010_expiry_sweep.sql supabase/migrations/0011_conversation_list.sql supabase/migrations/0012_message_interactions.sql supabase/migrations/0013_typing_channels.sql supabase/migrations/0014_unread_counts.sql supabase/migrations/0015_group_management.sql",
     "push:keys": "node scripts/generate-vapid.mjs",
     "push:test": "node scripts/push-test.mjs",
     "test:e2e": "node scripts/e2e-smoke.mjs",

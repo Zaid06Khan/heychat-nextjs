@@ -1,0 +1,21 @@
+-- ---------------------------------------------------------------------------
+-- Tell PostgREST to rebuild its schema cache.
+--
+-- Not a migration — a repair tool. Run it through scripts/migrate.mjs when a
+-- function or column exists in the database but the API insists it does not:
+--
+--     node scripts/migrate.mjs "$DATABASE_URL" scripts/reload-api-cache.sql
+--
+-- PostgREST answers requests from a cache of the schema built at boot and
+-- refreshed on this NOTIFY. Supabase normally fires it from an event trigger on
+-- DDL. When that does not happen the two disagree, and the symptom is brutal to
+-- diagnose: `pg_proc` shows the function, every client gets "Could not find the
+-- function ... in the schema cache", and it reads exactly like a migration that
+-- silently failed. Restarting the project also works, but only rebuilds what
+-- existed at the moment it restarted.
+--
+-- NOTIFY is delivered on COMMIT, and migrate.mjs wraps each file in a
+-- transaction, so this fires as the transaction closes.
+-- ---------------------------------------------------------------------------
+
+notify pgrst, 'reload schema';

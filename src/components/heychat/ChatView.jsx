@@ -11,11 +11,13 @@ import {
   deleteMessageForEveryone,
 } from '@/lib/messages/interactions';
 import { createTypingChannel } from '@/lib/messages/typing';
+import { markRead } from '@/lib/unread';
 import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff } from 'lucide-react';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
 import ReportDialog from './ReportDialog';
+import GroupInfoDialog from './GroupInfoDialog';
 
 const TIMERS = [
   { label: 'Off', value: 0 },
@@ -33,6 +35,7 @@ export default function ChatView() {
   const [loading, setLoading] = useState(true);
   const [showTimer, setShowTimer] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [mute, setMute] = useState(null);
   const [showMute, setShowMute] = useState(false);
   const [reactions, setReactions] = useState(new Map());
@@ -113,12 +116,11 @@ export default function ChatView() {
 
       setReactions(await getReactions(active.map((m) => m.id)));
 
-      for (const msg of active) {
-        if (msg.sender_id !== session.id && (!msg.read_by || !msg.read_by.includes(session.id))) {
-          const readBy = msg.read_by || [];
-          await base44.entities.Message.update(msg.id, { read_by: [...readBy, session.id] });
-        }
-      }
+      await markRead(
+        active
+          .filter((m) => m.sender_id !== session.id && !(m.read_by || []).includes(session.id))
+          .map((m) => m.id)
+      );
     } catch (e) {
       console.error(e);
     } finally {
@@ -276,12 +278,27 @@ export default function ChatView() {
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <Avatar src={avatar} name={title} size={40} online={online} isGroup={conversation.type === 'group'} />
-        <div className="flex-1 min-w-0">
-          <p className="font-display font-bold text-foreground text-lg truncate leading-tight">{title}</p>
-          <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
-            <Shield className="w-3 h-3" /> Encrypted in transit
-          </p>
-        </div>
+        {/* On a group the header is the way into member management — the
+            convention everywhere else, and it avoids a sixth header button. */}
+        {conversation.type === 'group' ? (
+          <button
+            onClick={() => setShowGroupInfo(true)}
+            className="flex-1 min-w-0 text-left"
+            aria-label="Group info and members"
+          >
+            <p className="font-display font-bold text-foreground text-lg truncate leading-tight">{title}</p>
+            <p className="text-[11px] font-semibold text-muted-foreground">
+              {conversation.participant_ids.length} members · tap for info
+            </p>
+          </button>
+        ) : (
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-bold text-foreground text-lg truncate leading-tight">{title}</p>
+            <p className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1">
+              <Shield className="w-3 h-3" /> Encrypted in transit
+            </p>
+          </div>
+        )}
         {/* The call button is deliberately absent. CallOverlay renders your own
             camera and nothing else — there is no RTCPeerConnection, no
             signalling and no TURN, so two people "on a call" each see
@@ -435,6 +452,23 @@ export default function ChatView() {
         onTyping={() => typingRef.current?.notifyTyping()}
       />
       <ReportDialog open={showReport} onClose={() => setShowReport(false)} reportedId={otherUser?.id || ''} reportedName={otherUser?.display_name || otherUser?.username || ''} />
+      <GroupInfoDialog
+        open={showGroupInfo}
+        onClose={() => setShowGroupInfo(false)}
+        conversation={conversation}
+        members={members}
+        onChanged={async () => {
+          // Membership changes rewrite participant_ids, which decides who the
+          // header, the member list and RLS itself consider part of this
+          // conversation — so the whole conversation is reloaded, not patched.
+          await loadConversation();
+          // Leaving removes you from participant_ids, at which point RLS stops
+          // returning the conversation at all. Get out before rendering a
+          // screen the database will no longer answer questions about.
+          const stillIn = await base44.entities.Conversation.get(conversationId).catch(() => null);
+          if (!stillIn) navigate('/home');
+        }}
+      />
     </div>
   );
 }

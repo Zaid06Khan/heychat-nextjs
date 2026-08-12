@@ -253,6 +253,22 @@ from `TABLES` once nothing imports it.
 
 **Still open:**
 
+- **`conversations.participant_ids` is an array with no foreign key**, so a
+  conversation does not cascade when its members are deleted. Deleting an
+  account leaves its conversations behind pointing at ids that no longer exist,
+  and nothing ever collects them. Found 2026-08-10 with 18 orphaned rows in the
+  project, all from test accounts; both test suites now delete conversations
+  before users. A real fix is either a join table (`conversation_members`) with
+  proper foreign keys, or a periodic sweep for rows whose participants have all
+  gone. The join table would also make membership checks indexable instead of
+  scanning an array.
+- **`ConversationList` is mounted twice on `/home`** — once in `AppLayout`'s
+  sidebar (`hidden md:flex`) and once inside `Home` (`md:hidden`). CSS decides
+  which one you see; both fetch, and both open a realtime channel. So the
+  work #8 did to get the list down to one channel and four queries is halved by
+  a layout duplicate. `BottomNav` is mounted twice for the same reason. Fixing
+  it means rendering the list once and positioning it responsively.
+
 - **`accounts` is readable by every signed-in user.** Required for contact
   search and group member lists, and it holds no credentials — but it exposes
   `country`, `bio`, `last_seen` and `blocked_account_ids` to anyone with an
@@ -386,6 +402,88 @@ Known gaps, in rough order of how soon someone will notice:
   `hide_notification_preview`. Both are enforced server-side in the notify route
   and both are covered by the e2e suite at the database level, but nobody has
   confirmed that a muted conversation stays silent on an actual phone.
-- **Read receipts are still N updates per thread load** — one RPC call per
-  unread message in `ChatView.loadMessages()`. Untouched by the #8 work, which
-  only fixed the conversation list.
+- ~~Read receipts are still N updates per thread load.~~ **They were worse than
+  that: they had never worked at all.** Fixed 2026-08-11. `loadMessages()` wrote
+  `read_by` with a direct table update, but `messages_update_sender` is
+  `using (sender_id = auth.uid())` — so a *recipient* marking a message read
+  matched zero rows, and PostgREST answers that with 200 and an empty array, not
+  an error. The write silently hit nothing, every time, for everyone, since
+  0001. `0002_rls.sql` says so in a comment directly above the policy
+  ("Recipients marking a message read do NOT go through here — they call
+  `mark_message_read()`"); the client simply didn't. It now calls the RPC, via
+  `markRead()` in `src/lib/unread.js`.
+
+  **Nothing caught this for months because nothing read `read_by` back.** The
+  e2e suite passed throughout — it calls the RPC directly, so it was testing the
+  database, not the client. Adding the unread badge is what made an invisible
+  failure visible, which is the argument for building the feature that consumes
+  a field before trusting the field.
+
+  Still N calls per thread load, now fired in parallel rather than in sequence.
+  One RPC taking an array would make it one round trip.
+
+  **A narrow race survives:** `loadMessages()` renders the thread *before* it
+  awaits the receipts, so opening a conversation and navigating away
+  immediately can cancel them in flight and leave it unread. The browser suite
+  waits on the `mark_message_read` response rather than on the message
+  appearing, for exactly this reason. Real users linger and the next open
+  catches it, so this is logged rather than fixed.
+
+## 12. Unread counts — DONE, 2026-08-11
+
+`0014_unread_counts.sql`. `messages.read_by` had been written on every message
+since 0001 and never once read back: no badge, no bold, no count. You found out
+a conversation had something new in it by opening it.
+
+`unread_counts(conv_ids)` counts in Postgres — one round trip for the whole
+list, because counting client-side means fetching every message of every
+conversation, which is the N+1 that `0011` exists to have removed. It is
+`security invoker` on purpose (same reasoning as 0011): as `definer` it would
+report the traffic volume of any conversation whose id someone guessed.
+
+Excluded from the count: your own messages, tombstones, and rows past their
+expiry that the five-minute sweep has not collected yet — a badge pointing at
+"This message was deleted" or at something already gone is worse than no badge.
+
+Known and deliberate:
+
+- **Muted conversations still count.** Muting silences the notification; it does
+  not mark anything as read. Whether the badge should respect a mute is a
+  product call nobody has made.
+- **The badge is published through a module-level store** (`src/lib/unread.js`)
+  rather than context, because `ConversationList` and `BottomNav` are each
+  mounted twice on `/home` (see #9). A debug run counted **four** badges for one
+  unread message. The store makes that harmless; it does not make it right.
+- Read marking is what clears it, so it inherits the race noted in #11.
+
+## 13. Group management — DONE, 2026-08-11
+
+`0015_group_management.sql`, `src/lib/groups.js`, `GroupInfoDialog.jsx`. A group
+used to be whatever `GroupCreateDialog` made it, permanently: no adding, no
+removing, no rename, and **no way to leave**. Being added to a group was a trap.
+
+**It also closed a hole that was already open**, which is why the migration does
+more than add functions. `0002`'s `conversations_update_member` was row-level
+with no column restriction, so any member could UPDATE any column of a group
+they belonged to — add anyone, remove the admin, set `admin_id` to themselves,
+rename it. Only the absence of UI stopped it. RLS cannot express "this column
+but not that one", so the UPDATE grant is now narrowed to `disappearing_timer`
+and everything else goes through `SECURITY DEFINER` functions where the rules
+are written down. The e2e suite asserts all four refusals.
+
+Two consequences are decided server-side because the client cannot be trusted
+to: the longest-standing member inherits admin when the admin leaves, and the
+last member out deletes the group rather than leaving an unreachable row.
+
+Known gaps:
+
+- **No record of who added or removed whom.** Members appear and vanish with no
+  history, which for a group used to agree things is the same gap as #11's
+  missing edit history.
+- **No invite flow.** The admin adds people directly; there is no accept step,
+  so anyone can be pulled into any group without consent. `blocked_account_ids`
+  is not consulted.
+- **Admin is a single point of failure.** One admin, no co-admins, and no way to
+  transfer deliberately — succession only happens by leaving.
+- The member list still reads `accounts` directly, so it inherits the exposure
+  noted in #9.

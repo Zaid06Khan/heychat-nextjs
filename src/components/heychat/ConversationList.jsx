@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { getSession, logout, getCurrentAccount } from '@/lib/heychatAuth';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getMutes } from '@/lib/notifications/mutes';
+import { setUnreadTotal } from '@/lib/unread';
 import { MessageCircle, Users, User, Plus, Search, BellOff } from 'lucide-react';
 import Avatar from './Avatar';
 import Logo from './Logo';
@@ -86,6 +87,7 @@ export default function ConversationList() {
 
       if (convs.length === 0) {
         setConversations([]);
+        setUnreadTotal(0);
         return;
       }
 
@@ -101,20 +103,25 @@ export default function ConversationList() {
         ),
       ];
 
-      const [accountsRes, lastMsgRes, mutes] = await Promise.all([
+      const [accountsRes, lastMsgRes, unreadRes, mutes] = await Promise.all([
         otherIds.length
           ? supabase.from('accounts').select('id, username, display_name, avatar, is_online').in('id', otherIds)
           : Promise.resolve({ data: [] }),
         // `distinct on` in one round trip — see 0011_conversation_list.sql.
         supabase.rpc('last_messages_for_conversations', { conv_ids: convIds }),
+        // Counted by Postgres — see 0014_unread_counts.sql. Counting these in
+        // the browser would mean fetching every message of every conversation.
+        supabase.rpc('unread_counts', { conv_ids: convIds }),
         getMutes(convIds),
       ]);
 
       const accountsById = new Map((accountsRes.data || []).map((a) => [a.id, a]));
       const lastByConv = new Map((lastMsgRes.data || []).map((m) => [m.conversation_id, m]));
+      const unreadByConv = new Map((unreadRes.data || []).map((u) => [u.conversation_id, Number(u.unread)]));
 
       const enriched = convs.map((conv) => {
         const lastMsg = lastByConv.get(conv.id) || null;
+        const unread = unreadByConv.get(conv.id) || 0;
         if (conv.type === 'group') {
           return {
             ...conv,
@@ -122,6 +129,7 @@ export default function ConversationList() {
             displayAvatar: conv.cover_image,
             online: false,
             lastMsg,
+            unread,
             muted: mutes.has(conv.id),
           };
         }
@@ -132,6 +140,7 @@ export default function ConversationList() {
           displayAvatar: other?.avatar || '',
           online: Boolean(other?.is_online),
           lastMsg,
+          unread,
           muted: mutes.has(conv.id),
         };
       });
@@ -149,6 +158,10 @@ export default function ConversationList() {
       });
 
       setConversations(enriched);
+
+      // Publishes to the nav badge. Muted conversations still count — muting
+      // silences the notification, it does not mark anything as read.
+      setUnreadTotal(enriched.reduce((sum, c) => sum + c.unread, 0));
     } catch (e) {
       console.error(e);
     } finally {
@@ -222,15 +235,31 @@ export default function ConversationList() {
                     {conv.displayName}
                   </p>
                   {conv.lastMsg && (
-                    <span className="text-[10px] text-muted-foreground shrink-0 ml-2">
+                    <span className={`text-[10px] shrink-0 ml-2 ${
+                      conv.unread > 0 ? 'text-primary font-bold' : 'text-muted-foreground'
+                    }`}>
                       {new Date(conv.lastMsg.created_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                {/* Unread rows carry the preview in full-strength ink and bold.
+                    Colour alone would not do it — the muted/normal difference is
+                    a contrast step some people cannot see, so weight carries it
+                    too, and the count badge states it outright. */}
+                <p className={`text-xs truncate mt-0.5 ${
+                  conv.unread > 0 ? 'text-foreground font-semibold' : 'text-muted-foreground'
+                }`}>
                   {getLastMessagePreview(conv.lastMsg)}
                 </p>
               </div>
+              {conv.unread > 0 && (
+                <span
+                  aria-label={`${conv.unread} unread`}
+                  className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-primary-foreground border-2 border-foreground text-[10px] font-extrabold flex items-center justify-center"
+                >
+                  {conv.unread > 99 ? '99+' : conv.unread}
+                </span>
+              )}
               {conv.muted && <BellOff className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
               {conv.disappearing_timer > 0 && <span className="text-sm">🔥</span>}
             </Link>

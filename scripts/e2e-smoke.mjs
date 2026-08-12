@@ -429,11 +429,140 @@ const { data: stillThere } = await admin.from('messages')
 check(!stillThere, 'and the expired row is actually gone',
   stillThere ? 'STILL PRESENT' : '');
 
+console.log('\n--- 12. UNREAD COUNTS ---');
+// Alice's count BEFORE she sends anything, because it is not zero and should
+// not be: section 10 had bob send "sent a while ago", which she never read.
+// The claim under test is that her own messages do not move her own count —
+// not that she has nothing unread, which is a different and false statement.
+const { data: aliceBefore } = await A.rpc('unread_counts', { conv_ids: [conv.id] });
+const aliceBaseline = Number(aliceBefore?.[0]?.unread || 0);
+
+// Alice sends two more; bob has read neither.
+const { data: unreadSeed } = await A.from('messages')
+  .insert([
+    { conversation_id: conv.id, sender_id: aliceId, content: 'unread one', read_by: [aliceId] },
+    { conversation_id: conv.id, sender_id: aliceId, content: 'unread two', read_by: [aliceId] },
+  ])
+  .select();
+
+const { data: bobUnread } = await B.rpc('unread_counts', { conv_ids: [conv.id] });
+const bobCount = Number(bobUnread?.[0]?.unread || 0);
+check(bobCount >= 2, 'bob has unread messages from alice', `got ${bobCount}`);
+
+// Your own messages are never unread to you. Two new ones from alice, so if
+// senders counted for themselves this would have climbed by two.
+const { data: aliceUnread } = await A.rpc('unread_counts', { conv_ids: [conv.id] });
+const aliceCount = Number(aliceUnread?.[0]?.unread || 0);
+check(aliceCount === aliceBaseline, 'alice\'s own messages do not count as unread to her',
+  `${aliceBaseline} -> ${aliceCount}`);
+
+// Reading one decrements it — this is the loop the badge depends on.
+await B.rpc('mark_message_read', { message_id: unreadSeed[0].id });
+const { data: afterRead2 } = await B.rpc('unread_counts', { conv_ids: [conv.id] });
+check(Number(afterRead2?.[0]?.unread || 0) === bobCount - 1,
+  'reading one message decrements the count',
+  `${bobCount} -> ${Number(afterRead2?.[0]?.unread || 0)}`);
+
+// A deleted message must not leave a badge pointing at a tombstone.
+await A.from('messages')
+  .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
+  .eq('id', unreadSeed[1].id);
+const { data: afterDel } = await B.rpc('unread_counts', { conv_ids: [conv.id] });
+check(Number(afterDel?.[0]?.unread || 0) === bobCount - 2,
+  'a deleted message stops being counted',
+  `got ${Number(afterDel?.[0]?.unread || 0)}`);
+
+// SECURITY INVOKER, same as the list RPC: carol is in no conversation here, so
+// she must not learn how much traffic one has.
+const { data: carolUnread } = await C.rpc('unread_counts', { conv_ids: [conv.id] });
+check((carolUnread || []).length === 0,
+  'a non-member gets no unread count for a conversation',
+  `got ${(carolUnread || []).length} rows`);
+
+console.log('\n--- 13. GROUP MANAGEMENT ---');
+const { data: group } = await A.from('conversations')
+  .insert({ type: 'group', name: 'e2e group', participant_ids: [aliceId, bobId], admin_id: aliceId })
+  .select().single();
+check(!!group, 'alice creates a group she administers');
+
+// THE HOLE 0015 CLOSES. Before it, conversations_update_member let any member
+// write any column — so bob could add people, remove alice, or make himself
+// admin. The UPDATE grant is now narrowed to disappearing_timer.
+const { data: bobAdds } = await B.from('conversations')
+  .update({ participant_ids: [aliceId, bobId, carolId()] }).eq('id', group.id).select();
+check(!bobAdds || bobAdds.length === 0,
+  'a member cannot edit participant_ids directly', `${(bobAdds || []).length} rows updated`);
+
+const { data: bobPromotes } = await B.from('conversations')
+  .update({ admin_id: bobId }).eq('id', group.id).select();
+check(!bobPromotes || bobPromotes.length === 0,
+  'a member cannot make themselves admin', `${(bobPromotes || []).length} rows updated`);
+
+const { data: bobRenames } = await B.from('conversations')
+  .update({ name: 'bob was here' }).eq('id', group.id).select();
+check(!bobRenames || bobRenames.length === 0,
+  'a member cannot rename the group directly', `${(bobRenames || []).length} rows updated`);
+
+// ...but the one column that IS meant to be open to any member still is.
+const { error: timerErr } = await B.from('conversations')
+  .update({ disappearing_timer: 60 }).eq('id', group.id);
+check(!timerErr, 'a member can still set the disappearing timer', timerErr?.message || '');
+
+// The sanctioned paths.
+const { error: bobAddErr } = await B.rpc('group_add_member', { conv_id: group.id, new_member: carolId() });
+check(!!bobAddErr, 'a non-admin cannot add through the RPC either', bobAddErr?.message || 'NO ERROR');
+
+const { error: aliceAddErr } = await A.rpc('group_add_member', { conv_id: group.id, new_member: carolId() });
+check(!aliceAddErr, 'the admin can add a member', aliceAddErr?.message || '');
+
+const { data: afterAdd } = await A.from('conversations').select('participant_ids').eq('id', group.id).single();
+check((afterAdd?.participant_ids || []).includes(carolId()), 'and carol is now in the group');
+
+const { error: bobRemoveErr } = await B.rpc('group_remove_member', { conv_id: group.id, member: carolId() });
+check(!!bobRemoveErr, 'a non-admin cannot remove anyone', bobRemoveErr?.message || 'NO ERROR');
+
+const { error: selfRemoveErr } = await A.rpc('group_remove_member', { conv_id: group.id, member: aliceId });
+check(!!selfRemoveErr, 'the admin cannot remove themselves (leaving is a different thing)',
+  selfRemoveErr?.message || 'NO ERROR');
+
+const { error: aliceRemoveErr } = await A.rpc('group_remove_member', { conv_id: group.id, member: carolId() });
+check(!aliceRemoveErr, 'the admin can remove a member', aliceRemoveErr?.message || '');
+
+// Leaving, and succession. Alice is the admin; when she goes, bob must inherit
+// it — a group whose admin_id points at a non-member can never be administered.
+const { error: leaveErr } = await A.rpc('group_leave', { conv_id: group.id });
+check(!leaveErr, 'the admin can leave', leaveErr?.message || '');
+
+const { data: afterLeave } = await admin.from('conversations')
+  .select('participant_ids, admin_id').eq('id', group.id).single();
+check(!(afterLeave?.participant_ids || []).includes(aliceId), 'and is no longer a member');
+check(afterLeave?.admin_id === bobId, 'and the remaining member inherited admin',
+  `admin_id=${afterLeave?.admin_id}`);
+
+// Last one out deletes the group, rather than leaving an unreachable row.
+const { error: bobLeaveErr } = await B.rpc('group_leave', { conv_id: group.id });
+check(!bobLeaveErr, 'the last member can leave too', bobLeaveErr?.message || '');
+const { data: goneGroup } = await admin.from('conversations').select('id').eq('id', group.id);
+check((goneGroup || []).length === 0, 'and the empty group is deleted');
+
 console.log(`\n=========== ${pass} passed, ${fail} failed ===========\n`);
 
 // cleanup
-for (const id of [aliceId, bobId, rC.json.account.id]) {
+//
+// Conversations FIRST. `participant_ids` is a uuid[] with no foreign key, so a
+// conversation does not cascade when its members are deleted — every run of
+// this suite until now has left its conversations (and their messages) behind
+// permanently, because deleting the users removed the only thing pointing at
+// them. Deleting the conversation cascades its messages.
+const testIds = [aliceId, bobId, rC.json.account.id];
+const { data: allConvs } = await admin.from('conversations').select('id, participant_ids');
+const strays = (allConvs || []).filter((c) =>
+  (c.participant_ids || []).some((p) => testIds.includes(p))
+);
+for (const c of strays) await admin.from('conversations').delete().eq('id', c.id);
+
+for (const id of testIds) {
   await admin.auth.admin.deleteUser(id).catch(() => {});
 }
-console.log('test users deleted');
+console.log(`test users deleted (${testIds.length}), conversations removed (${strays.length})`);
 process.exit(fail ? 1 : 0);
