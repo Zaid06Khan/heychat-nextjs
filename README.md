@@ -32,6 +32,9 @@ supabase/migrations/0010_expiry_sweep.sql        server-side disappearing sweep
 supabase/migrations/0011_conversation_list.sql   one-query conversation list
 supabase/migrations/0012_message_interactions.sql replies, reactions, edit, delete
 supabase/migrations/0013_typing_channels.sql     typing-indicator authorisation
+supabase/migrations/0014_unread_counts.sql       unread counting in Postgres
+supabase/migrations/0015_group_management.sql    add/remove/rename/leave a group
+supabase/migrations/0016_message_hides.sql       "delete for me"  <- not yet applied
 ```
 
 > `0005` then `0007` on a fresh database is a build-then-demolish, which looks

@@ -9,6 +9,8 @@ import {
   toggleReaction,
   editMessage,
   deleteMessageForEveryone,
+  hideMessageForMe,
+  getHiddenMessageIds,
 } from '@/lib/messages/interactions';
 import { createTypingChannel } from '@/lib/messages/typing';
 import { markRead } from '@/lib/unread';
@@ -112,7 +114,16 @@ export default function ChatView() {
       // five minutes (0010), so a row can outlive its expiry by a few minutes —
       // hiding it locally keeps "disappearing" honest on screen in the gap.
       const now = new Date();
-      const active = msgs.filter((m) => !m.expiry_at || new Date(m.expiry_at) > now);
+      const unexpired = msgs.filter((m) => !m.expiry_at || new Date(m.expiry_at) > now);
+
+      // "Delete for me" (0016). Filtered here rather than in the query because
+      // the messages come through the shim, which has no way to express a
+      // NOT EXISTS against another table. The sidebar preview and the unread
+      // count apply the same rule server-side, so the three agree.
+      const hidden = await getHiddenMessageIds(unexpired.map((m) => m.id));
+      const active = hidden.size
+        ? unexpired.filter((m) => !hidden.has(m.id))
+        : unexpired;
       setMessages(active);
 
       setReactions(await getReactions(active.map((m) => m.id)));
@@ -212,6 +223,29 @@ export default function ChatView() {
       await loadMessages();
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  /**
+   * Hide it from this account only. Optimistic, because the row is the caller's
+   * own and nobody else's copy is involved — there is no state to reconcile
+   * with, so waiting on the round trip would only make it feel slow. On failure
+   * the reload puts it back rather than leaving a message that looks gone and
+   * is not.
+   */
+  const handleHide = async (message) => {
+    setMessages((current) => current.filter((m) => m.id !== message.id));
+    try {
+      await hideMessageForMe(message.id, session.id);
+    } catch (e) {
+      console.error(e);
+      setSendError({
+        message: /message_hides/i.test(e.message || '')
+          ? 'Delete for me needs migration 0016 — see FOLLOWUPS.'
+          : e.message || 'Could not hide that message.',
+        payload: null,
+      });
+      await loadMessages();
     }
   };
 
@@ -428,6 +462,7 @@ export default function ChatView() {
                 onReply={setReplyTo}
                 onEdit={setEditing}
                 onDelete={handleDelete}
+                onHide={handleHide}
                 onReact={handleReact}
               />
             );
@@ -461,13 +496,26 @@ export default function ChatView() {
           <div className="max-w-3xl mx-auto w-full flex items-center gap-2 text-xs text-destructive">
             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
             <span className="flex-1 min-w-0 truncate">{sendError.message}</span>
-            <button
-              type="button"
-              onClick={() => deliver(sendError.payload)}
-              className="shrink-0 font-medium underline underline-offset-2"
-            >
-              Retry
-            </button>
+            {/* Only a failed send has something to retry. The same strip also
+                carries failures that have no payload behind them — hiding a
+                message, say — and offering Retry there would re-send nothing. */}
+            {sendError.payload ? (
+              <button
+                type="button"
+                onClick={() => deliver(sendError.payload)}
+                className="shrink-0 font-medium underline underline-offset-2"
+              >
+                Retry
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSendError(null)}
+                className="shrink-0 font-medium underline underline-offset-2"
+              >
+                Dismiss
+              </button>
+            )}
           </div>
         </div>
       )}

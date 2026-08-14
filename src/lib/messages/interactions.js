@@ -114,3 +114,51 @@ export async function deleteMessageForEveryone(messageId) {
 
   if (error) throw new Error(error.message);
 }
+
+/**
+ * Delete for me.
+ *
+ * The other half of the pair, and deliberately not the same mechanism. This
+ * writes a row to `message_hides` (0016) saying *you* do not want to see this
+ * message; the message itself is untouched and everyone else's copy is exactly
+ * as it was. Anyone else's message can be hidden, including one you could not
+ * delete for everyone.
+ *
+ * Be clear about what this is not: the body still exists and the server can
+ * still read it. It is a view preference. "Delete for everyone" remains the
+ * only one that destroys anything.
+ */
+export async function hideMessageForMe(messageId, accountId) {
+  const { error } = await getSupabaseBrowserClient()
+    .from('message_hides')
+    .insert({ message_id: messageId, account_id: accountId });
+
+  // Hiding something already hidden is the state the caller wanted, so a
+  // duplicate is not worth surfacing — same reasoning as a double-tapped
+  // reaction.
+  if (error && !/duplicate key/i.test(error.message)) throw new Error(error.message);
+}
+
+/**
+ * Which of these messages has the caller hidden?
+ *
+ * Degrades to "none" rather than throwing. Migrations here are applied by hand
+ * (see README), so a tree that has this code but not 0016 is a real state, and
+ * in it the honest behaviour is the old one: every message visible. Failing
+ * loudly would instead take out the whole thread view over a feature nobody had
+ * used yet. `hideMessageForMe` does NOT swallow its error, so the action still
+ * reports plainly if the table is missing.
+ *
+ * @returns {Promise<Set<string>>}
+ */
+export async function getHiddenMessageIds(messageIds = []) {
+  if (messageIds.length === 0) return new Set();
+
+  const { data, error } = await getSupabaseBrowserClient()
+    .from('message_hides')
+    .select('message_id')
+    .in('message_id', messageIds);
+
+  if (error) return new Set();
+  return new Set((data || []).map((r) => r.message_id));
+}

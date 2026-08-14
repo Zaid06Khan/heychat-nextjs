@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Image } from '@/components/ui/image';
-import { Check, CheckCheck, Flame, FileText, MoreHorizontal, Reply, Pencil, Trash2, SmilePlus } from 'lucide-react';
+import { Check, CheckCheck, Flame, FileText, MoreHorizontal, Reply, Pencil, Trash2, SmilePlus, EyeOff } from 'lucide-react';
 import { useSignedMedia } from '@/lib/media/useSignedMedia';
 import { QUICK_REACTIONS, summariseReactions } from '@/lib/messages/interactions';
 
@@ -15,6 +15,7 @@ export default function MessageBubble({
   onReply,
   onEdit,
   onDelete,
+  onHide,
   onReact,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -194,6 +195,16 @@ export default function MessageBubble({
                           <Pencil className="w-4 h-4" /> Edit
                         </button>
                       )}
+                      {/* Two different things, so they are named as two
+                          different things. Hiding is offered on anyone's
+                          message; destroying one is only ever offered on your
+                          own, and is the only one drawn in the alert colour. */}
+                      <button
+                        onClick={() => { onHide?.(message); closeMenus(); }}
+                        className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-foreground hover:bg-secondary transition"
+                      >
+                        <EyeOff className="w-4 h-4" /> Delete for me
+                      </button>
                       {isOwn && (
                         <button
                           onClick={() => { onDelete?.(message); closeMenus(); }}
