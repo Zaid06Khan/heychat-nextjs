@@ -267,8 +267,15 @@ const { error: pushWriteErr } = await A.from('push_subscriptions')
 check(!!pushWriteErr, 'a client cannot write a subscription directly',
   pushWriteErr?.message || 'NO ERROR');
 
-const notify = async (cookie, body) => {
-  const res = await fetch(APP + '/api/push/notify', {
+console.log('\n--- 9b. SENDING THROUGH /api/messages ---');
+// Sending used to be a client-side insert followed by a separate request to
+// /api/push/notify asking for the notification. Both halves are one route now,
+// so what is worth testing has changed. The old questions — can you make
+// someone's phone buzz about a message you didn't send, can you replay an old
+// id — are unaskable, because the caller no longer names a message. The new
+// question is what the route refuses to take from you.
+const send = async (cookie, body) => {
+  const res = await fetch(APP + '/api/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', cookie },
     body: JSON.stringify(body),
@@ -276,37 +283,80 @@ const notify = async (cookie, body) => {
   return { status: res.status, json: await res.json().catch(() => null) };
 };
 
-// The notify route's whole job is refusing to buzz people on request. Reading a
-// message is not permission to notify about it, and being nobody in particular
-// is not permission to do anything.
-const carolNotify = await notify(carolCookie, { messageId: mediaMsg.id });
-check(carolNotify.status === 404, 'a non-participant cannot trigger a notification',
-  `status=${carolNotify.status}`);
+const anonSend = await send('', { conversation_id: conv.id, content: 'hello' });
+check(anonSend.status === 401, 'sending requires a session', `status=${anonSend.status}`);
 
-const bobNotify = await notify(bobCookie, { messageId: mediaMsg.id });
-check(bobNotify.status === 404, 'a participant cannot notify about someone else\'s message',
-  `status=${bobNotify.status}`);
+// Carol is not in this conversation. The read happens through her own session,
+// so she cannot tell "does not exist" from "not yours" — which is the point.
+const carolSend = await send(carolCookie, { conversation_id: conv.id, content: 'intruding' });
+check(carolSend.status === 404, 'a non-participant cannot send into a conversation',
+  `status=${carolSend.status}`);
 
-const anonNotify = await notify('', { messageId: mediaMsg.id });
-check(anonNotify.status === 401, 'notifying requires a session', `status=${anonNotify.status}`);
+const missingConv = await send(bobCookie, { content: 'nowhere' });
+check(missingConv.status === 400, 'a send with no conversation is refused',
+  `status=${missingConv.status}`);
 
-// Freshness, tested properly: a message bob really did send, backdated past the
-// route's one-minute window. He passes every other check, so this isolates the
-// replay guard. Written with the service role because created_date is what is
-// being controlled here. (Bob, not alice — alice is near the login limit and
-// has no cookie in this run.)
-const { data: oldMsg } = await admin.from('messages')
+const emptySend = await send(bobCookie, { conversation_id: conv.id, content: '   ' });
+check(emptySend.status === 400, 'an empty text message is refused', `status=${emptySend.status}`);
+
+const badType = await send(bobCookie, {
+  conversation_id: conv.id, message_type: 'ransomware', content: 'x',
+});
+check(badType.status === 400, 'an unknown message type is refused', `status=${badType.status}`);
+
+// The fields the client no longer decides. Bob posts a body that lies about all
+// of them at once, and the route takes none of it.
+const forged = await send(bobCookie, {
+  conversation_id: conv.id,
+  content: 'whose message is this',
+  sender_id: aliceId,
+  read_by: [aliceId, bobId, carolId()],
+  created_date: '1999-01-01T00:00:00.000Z',
+});
+check(forged.status === 200 && forged.json?.message?.sender_id === bobId,
+  'a forged sender_id is ignored — the session decides',
+  `got ${forged.json?.message?.sender_id}`);
+check(JSON.stringify(forged.json?.message?.read_by) === JSON.stringify([bobId]),
+  'and read_by starts as the sender alone', JSON.stringify(forged.json?.message?.read_by));
+check(new Date(forged.json?.message?.created_date).getFullYear() >= 2020,
+  "and created_date is the database's, not the caller's",
+  forged.json?.message?.created_date);
+
+// expiry_at is the one the browser used to compute, which meant the browser
+// could decline to. A disappearing conversation now expires a message whose
+// sender explicitly asked for it not to.
+await admin.from('conversations').update({ disappearing_timer: 60 }).eq('id', conv.id);
+const timed = await send(bobCookie, {
+  conversation_id: conv.id, content: 'should not last', expiry_at: null,
+});
+check(timed.status === 200 && !!timed.json?.message?.expiry_at,
+  'the disappearing timer is applied server-side even when the client omits it',
+  `expiry_at=${timed.json?.message?.expiry_at}`);
+await admin.from('conversations').update({ disappearing_timer: 0 }).eq('id', conv.id);
+
+// A reply pointing into another conversation would render as "original message
+// unavailable" for every person who received it.
+const { data: otherConv } = await admin.from('conversations')
+  .insert({ type: 'direct', participant_ids: [bobId, carolId()], disappearing_timer: 0 })
+  .select().single();
+const { data: otherMsg } = await admin.from('messages')
   .insert({
-    conversation_id: conv.id, sender_id: bobId, content: 'sent a while ago',
+    conversation_id: otherConv.id, sender_id: bobId, content: 'elsewhere',
     message_type: 'text', read_by: [bobId],
-    created_date: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
   })
   .select().single();
 
-const staleNotify = await notify(bobCookie, { messageId: oldMsg?.id });
-check(staleNotify.status === 200 && staleNotify.json?.reason === 'stale',
-  'the sender cannot replay an old message to buzz someone again',
-  `status=${staleNotify.status} reason=${staleNotify.json?.reason}`);
+const crossReply = await send(bobCookie, {
+  conversation_id: conv.id, content: 'replying across threads', reply_to_id: otherMsg.id,
+});
+check(crossReply.status === 400, 'a reply cannot point at a message in another conversation',
+  `status=${crossReply.status}`);
+
+const goodReply = await send(bobCookie, {
+  conversation_id: conv.id, content: 'a proper reply', reply_to_id: forged.json?.message?.id,
+});
+check(goodReply.status === 200 && goodReply.json?.message?.reply_to_id === forged.json?.message?.id,
+  'a reply within the conversation is accepted', goodReply.json?.error || '');
 
 console.log('\n--- 10. MUTES, REACTIONS AND THE LIST RPC ---');
 // Mutes are one of the few new tables clients CAN write, so the check is that

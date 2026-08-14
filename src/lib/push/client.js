@@ -205,17 +205,10 @@ export async function syncPushSubscription() {
 }
 
 /**
- * Fire-and-forget notification request for a message that was just sent.
- *
- * Deliberately swallows everything. A failed notification must never surface as
- * a failed send — the message is already in the database by this point.
+ * There used to be a `requestPushForMessage(messageId)` here, and a
+ * /api/push/notify route to receive it: the sender's tab inserted a message and
+ * then asked the server to notify everyone about it. Both are gone. Sending goes
+ * through POST /api/messages, which notifies as part of the same request, so
+ * there is no longer a window in which a message exists but its notification
+ * does not. See src/app/api/messages and FOLLOWUPS.md #10.
  */
-export function requestPushForMessage(messageId) {
-  if (!messageId || typeof fetch === 'undefined') return;
-  fetch('/api/push/notify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messageId }),
-    keepalive: true,
-  }).catch(() => {});
-}

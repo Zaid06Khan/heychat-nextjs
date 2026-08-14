@@ -9,12 +9,14 @@
  *   1. the browser never subscribed (no permission, no service worker, no keys)
  *   2. the subscription never reached the database
  *   3. Web Push delivery itself is broken (bad VAPID keys, dead endpoint)
- *   4. the app's /api/push/notify logic decided not to send
+ *   4. notifyForMessage() decided not to send — a mute, a block, or a preview
+ *      preference
  *
  * This script exercises 1-3 and deliberately skips 4. If a test notification
- * arrives but a real message doesn't, the fault is in the notify route or in
- * the sender's browser calling it. If neither arrives, the problem is further
- * down and this will say where.
+ * arrives but a real message doesn't, the fault is in that decision, since
+ * sending and notifying are now one request and there is no longer a delivery
+ * step in between that can be missed. If neither arrives, the problem is
+ * further down and this will say where.
  *
  * Reads .env.local directly and uses the service role, so it needs no running
  * dev server.

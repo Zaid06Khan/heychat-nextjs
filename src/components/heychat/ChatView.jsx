@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getSession, getCurrentAccount } from '@/lib/heychatAuth';
-import { requestPushForMessage } from '@/lib/push/client';
+import { sendMessage } from '@/lib/messages/send';
 import { getMute, muteConversation, unmuteConversation, MUTE_OPTIONS } from '@/lib/notifications/mutes';
 import {
   getReactions,
@@ -12,7 +12,7 @@ import {
 } from '@/lib/messages/interactions';
 import { createTypingChannel } from '@/lib/messages/typing';
 import { markRead } from '@/lib/unread';
-import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff } from 'lucide-react';
+import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle } from 'lucide-react';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
@@ -42,6 +42,7 @@ export default function ChatView() {
   const [replyTo, setReplyTo] = useState(null);
   const [editing, setEditing] = useState(null);
   const [typingNames, setTypingNames] = useState([]);
+  const [sendError, setSendError] = useState(null);
   const typingRef = useRef(null);
   const [otherUser, setOtherUser] = useState(null);
   const [members, setMembers] = useState([]);
@@ -145,29 +146,41 @@ export default function ChatView() {
       return;
     }
 
-    const expiry_at = conversation.disappearing_timer > 0
-      ? new Date(Date.now() + conversation.disappearing_timer * 1000).toISOString()
-      : null;
-    const message = await base44.entities.Message.create({
-      conversation_id: conversationId,
-      sender_id: session.id,
+    // One request now, not two. It writes the row and sends the notification
+    // together, so a tab that dies mid-send can no longer produce a delivered
+    // but silent message. `expiry_at` is the server's to work out — see
+    // src/app/api/messages.
+    const payload = {
+      conversationId,
+      messageType: data.message_type,
       content: data.content || '',
-      media_url: data.media_url || '',
-      message_type: data.message_type,
-      expiry_at,
-      read_by: [session.id],
-      reply_to_id: replyTo?.id || null,
-    });
+      mediaUrl: data.media_url || '',
+      replyToId: replyTo?.id || null,
+    };
+
     setReplyTo(null);
     // Clear the indicator on the other side now rather than letting it time
-    // out — the message has arrived, so "still typing" is visibly wrong.
+    // out — the message is on its way, so "still typing" is visibly wrong.
     typingRef.current?.stopTyping();
 
-    // Fire-and-forget: the message is already saved, and the recipient sees it
-    // in-app through the realtime subscription regardless. This only decides
-    // whether their phone lights up. Deliberately not awaited — a slow push
-    // service must not hold up the composer. See src/app/api/push/notify.
-    requestPushForMessage(message?.id);
+    await deliver(payload);
+  };
+
+  /**
+   * MessageInput clears the composer the moment it hands the text over, so a
+   * throw here would take the message with it — no bubble, no error, nothing to
+   * retry. Holding the payload is what makes the Retry button possible. Rate
+   * limiting on /api/messages makes this a real outcome rather than a
+   * theoretical one.
+   */
+  const deliver = async (payload) => {
+    setSendError(null);
+    try {
+      await sendMessage(payload);
+    } catch (e) {
+      console.error(e);
+      setSendError({ message: e.message || 'Could not send that message.', payload });
+    }
   };
 
   const handleReact = async (message, emoji) => {
@@ -440,6 +453,22 @@ export default function ChatView() {
                 ? `${typingNames[0]} and ${typingNames[1]} are typing`
                 : `${typingNames.length} people are typing`}
           </p>
+        </div>
+      )}
+
+      {sendError && (
+        <div className="px-4 pb-1 bg-secondary">
+          <div className="max-w-3xl mx-auto w-full flex items-center gap-2 text-xs text-destructive">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span className="flex-1 min-w-0 truncate">{sendError.message}</span>
+            <button
+              type="button"
+              onClick={() => deliver(sendError.payload)}
+              className="shrink-0 font-medium underline underline-offset-2"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
 

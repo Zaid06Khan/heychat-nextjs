@@ -11,8 +11,8 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client';
  *
  * A row means muted. `muted_until` NULL means indefinitely; a timestamp expires
  * on its own, so nothing has to run on a schedule to clean it up. The server
- * applies the same rule independently in /api/push/notify — this module only
- * decides what the UI shows.
+ * applies the same rule independently in lib/push/notifyForMessage.js, which
+ * runs as part of sending — this module only decides what the UI shows.
  */
 
 /** A row is only actually muting if it hasn't expired. */

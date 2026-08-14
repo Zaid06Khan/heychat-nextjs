@@ -80,7 +80,7 @@ npm run test:e2e -- http://localhost:3000
 ```
 
 Registers three throwaway users, walks register → login → send a message, then
-asserts the boundaries hold, and deletes the users. **57 assertions**, covering:
+asserts the boundaries hold, and deletes the users. **85 assertions**, covering:
 
 - non-participants can't read a conversation, and nobody can send as someone else
 - `account_secrets` is unreachable and a user can't self-promote to admin
@@ -88,8 +88,10 @@ asserts the boundaries hold, and deletes the users. **57 assertions**, covering:
   `credit_earning()` — so a database that skipped `0007` fails loudly
 - attachments can't be fetched by a signed-out stranger, are signed only for
   people in the conversation, and pre-`0006` absolute URLs still resolve
-- push subscriptions are unreachable by any client, and `/api/push/notify`
-  refuses non-participants, non-senders, signed-out callers and replayed ids
+- push subscriptions are unreachable by any client, and `/api/messages` refuses
+  signed-out callers and non-participants, ignores a forged `sender_id`,
+  `read_by` or `created_date`, applies the disappearing timer even when the
+  client omits it, and won't let a reply point into another conversation
 - nobody can mute or react on someone else's behalf, the conversation-list RPC
   returns nothing to a non-member, and a deleted message keeps no readable body
 - deleting or expiring a message queues its attachment, `/api/cron/sweep-media`
@@ -184,21 +186,28 @@ The pieces:
 | `lib/push/client.js` | the browser | permission, subscribe/unsubscribe, re-sync on start |
 | `lib/push/server.js` | the server | signs and delivers, prunes dead endpoints |
 | `api/push/subscribe`,`unsubscribe` | route handlers | store and remove a device's endpoint |
-| `api/push/notify` | route handler | decides who gets buzzed, and composes the text |
+| `lib/push/notifyForMessage.js` | the server | decides who gets buzzed, and composes the text |
 
-**The sender's browser asks for the notification** (`POST /api/push/notify`
-with a message id) after its message lands, because messages are still written
-straight from the browser through the compatibility shim. The caller supplies
-only an id: the route reads the message through *their own session* so RLS
-decides visibility, requires that they are its sender, ignores anything older
-than a minute so a captured id can't be replayed, and composes the notification
-text server-side from the stored row. Nothing in the request body reaches
-anyone's lock screen, and blocked senders are filtered out.
+**Sending a message is what triggers the notification**, in the same request.
+`POST /api/messages` inserts the row through the caller's own session — so
+`messages_insert_member` still decides whether they may write into that
+conversation — and then calls `notifyForMessage()` from Next's `after()`, which
+runs once the response is on the wire but still inside the same server
+invocation. The composer never waits on a round trip to FCM, and the
+notification is no longer something the sender's tab has to stay alive to ask
+for.
 
-The consequence is worth knowing: if the sender's tab dies between the insert
-and that call, the message is delivered but silent. That is the pre-existing
-behaviour, not a new failure. When sending moves behind a real route handler
-(FOLLOWUPS §8), the notify call belongs inside it and the route should go away.
+That closes the gap this section used to describe. Until 2026-08-14 messages
+were inserted by the browser and the notification was a *second* request
+(`POST /api/push/notify`) the sending tab had to survive to make; if it didn't,
+the message arrived silently with nothing reporting an error. That route is
+gone, along with the defensive machinery it needed — visibility checks,
+sender checks, a one-minute replay window — all of which existed because the
+caller named a message it had not necessarily sent. It cannot name one now.
+
+The notification text is still composed server-side from the stored row, so
+nothing in a request body reaches anyone's lock screen, and blocked senders and
+muted conversations are filtered out before a push is sent.
 
 `push_subscriptions` has **no policy and no grant** for clients — an endpoint
 plus its key pair is a capability to push to that device. Every write goes

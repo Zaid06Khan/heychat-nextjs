@@ -3,7 +3,7 @@
 Things this codebase knows are wrong or unfinished. Each one is a project in its
 own right.
 
-**Status as of 2026-08-09.** Numbering is kept stable because commit messages
+**Status as of 2026-08-14.** Numbering is kept stable because commit messages
 reference these by number — closed items stay in place rather than being deleted
 and renumbered.
 
@@ -230,20 +230,44 @@ That work also fixed a bug nobody had filed: the list was ordered by
 message arrives** — so a new message never moved its conversation to the top,
 which is the one thing that list is for. It now sorts by last message.
 
+**Sending has now left the shim** (2026-08-14) — the first write to do so, and
+it went first because of what it was costing rather than to start at the top of
+a list. `POST /api/messages` inserts the row and sends the notification in one
+request; `src/lib/messages/send.js` is all the client keeps. See #10 for the bug
+that closes, and the route's own comment for why the insert still goes through
+the *caller's* session rather than the service role: `messages_insert_member`
+was already the boundary and already tested, and a second membership check
+written in JavaScript would only be a thing that could drift from it.
+
+Three things stopped being the client's decision on the way through — `sender_id`,
+`read_by` and `created_date` were already belt-and-braces, but **`expiry_at` was
+a real hole**: the browser computed the disappearing-message expiry, so anything
+posting to Supabase directly could send a permanent message into a disappearing
+conversation. It is derived from `conversations.disappearing_timer` server-side
+now, and the e2e suite sends a message that explicitly asks for no expiry and
+asserts it gets one anyway.
+
+One thing the move forced into the open: **a failed send used to vanish.**
+`MessageInput` clears the composer the moment it hands the text over, and
+`handleSend` had no `catch`, so anything that went wrong took the message with
+it — no bubble, no error, nothing to retry. That was always true; adding a rate
+limit made it likely enough to matter. There is now an inline error line above
+the composer with a Retry that re-sends the same payload. It is the minimum:
+there is no queue, so the text is held in one piece of component state and a
+navigation away loses it.
+
+`ChatView` still *reads* through the shim, and that is the larger half.
+
 Costs while the shim stays:
-- Everything is a client-side query. No server rendering, no request waterfall
-  control.
+- Everything else is a client-side query. No server rendering, no request
+  waterfall control.
 - `.subscribe()` still opens one realtime channel per call site everywhere else.
 - The Base44 filter dialect (`{ $lt: ... }`) is translated at runtime instead of
   being a typed query.
-- **Push delivery depends on it** — see #10. Because messages are written from
-  the browser, the notification is a second request the sender's tab has to
-  survive to make. Moving sending behind a route handler closes that, and is now
-  the highest-value single step here.
 
-New surfaces added since (mutes, reactions, typing, push) deliberately go
-straight to Supabase rather than through `TABLES`, so the shim shrinks by not
-growing.
+New surfaces added since (mutes, reactions, typing, push, sending) deliberately
+go straight to Supabase or to a route handler rather than through `TABLES`, so
+the shim shrinks by not growing.
 
 Migration order that keeps risk low: `Landing` → `Login`/`Register` → `Contacts`
 → `Settings`/`Profile` → `ConversationList`/`ChatView` last. Delete each entity
@@ -327,7 +351,7 @@ from `TABLES` once nothing imports it.
   Query (already a dependency) — part of retiring the shim (#8). Note media now
   adds one signing request per distinct attachment, cached per key.
 
-## 10. Push notifications — DONE, with three known edges
+## 10. Push notifications — DONE; the delivery gap closed 2026-08-14
 
 Added 2026-08-09: `0008_push_subscriptions.sql`, `public/sw.js`,
 `src/lib/push/*`, `/api/push/{subscribe,unsubscribe,notify}`, and a toggle in
@@ -336,14 +360,28 @@ runtime — with no VAPID keys set, the app behaves exactly as it did before.
 
 What is deliberately still imperfect:
 
-- **Delivery depends on the sender's tab surviving one more request.** The
-  notification is requested by the sender's browser after the message lands,
-  because messages are still written client-side through the shim. If that tab
-  dies in between, the message is delivered silently. This disappears when
-  sending moves behind a route handler — see #8, which this is now a reason to
-  do sooner. A database trigger with `pg_net` is the other option.
-- **The rate limiter is per-process** (see below), and it is what bounds
-  `/api/push/notify`. On several instances the notify budget multiplies.
+- ~~Delivery depends on the sender's tab surviving one more request.~~
+  **Closed 2026-08-14.** Sending goes through `POST /api/messages` (see #8),
+  which inserts the message and then notifies from Next's `after()` — after the
+  response is on the wire, still inside the same server invocation. So the
+  composer never waits on a round trip to FCM, and the notification is no longer
+  something the sender's tab has to stay alive to ask for. `/api/push/notify` is
+  **deleted**, along with the machinery it needed to survive being callable with
+  any message id at all: reading the row through the caller's session, checking
+  they were its sender, and a one-minute window so a captured id could not be
+  replayed. None of that was protecting anything real — it was protecting
+  against the shape of the design, and the shape changed.
+
+  What is left is the narrow, honest version of the same failure: if the server
+  process dies between the insert and the `after()` callback, the message is
+  delivered silently. That is one process, in one place, for a few hundred
+  milliseconds, instead of every user's browser tab for the length of a request.
+  A database trigger with `pg_net` is still the only thing that would close it
+  completely, and still costs a service-role key stored in the database.
+- **The rate limiter is per-process** (see below), and it now bounds
+  `/api/messages` at 60 sends per account per minute — the first send limit this
+  app has ever had; before this, message inserts went straight to Postgres with
+  nothing counting them. On several instances the budget multiplies.
 - ~~No per-conversation mute, and no "hide message preview".~~ **Both added**
   in `0009_notification_prefs.sql`, applied server-side in the notify route —
   a muted conversation is dropped before a push is sent, and hidden previews
