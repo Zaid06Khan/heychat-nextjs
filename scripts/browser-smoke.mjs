@@ -385,6 +385,22 @@ try {
   check(await gone(A, '[aria-label="1 unread"]'),
     'and it clears once the conversation is opened');
 
+  // The desktop half of the single-mount check the phone pass makes. /home is
+  // where the duplicate used to be, so it is the width that has to hold.
+  const deskLists = await A.locator('text=Search contacts').count();
+  check(deskLists === 1, 'the conversation list is mounted once on desktop /home',
+    `got ${deskLists}`);
+  const deskNavs = await A.locator('nav').count();
+  check(deskNavs === 1, 'and so is the nav', `got ${deskNavs}`);
+
+  // The list survives a tab change rather than being torn down and refetched.
+  // It is hidden off /home on a phone, not unmounted, and on desktop it is
+  // always on screen — either way one mount, and the sidebar still shows the
+  // conversation after navigating away from /home and back.
+  await A.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
+  check(await seen(A, `text=${userB}`),
+    'and it is still there on /contacts, where the sidebar persists');
+
   console.log('\n--- 9. PHONE WIDTH (390x844) ---');
   // FOLLOWUPS #9 carried "nothing has been checked at phone width" for days
   // because the Chrome extension could not resize below desktop. This app is
@@ -449,14 +465,25 @@ try {
   // which cannot overflow and would pass regardless.
   await seen(M, 'nav:visible');
   await noOverflow(M, '/home');
-  // `:visible`, not a raw count: AppLayout renders BottomNav twice — once in
-  // the sidebar (`hidden md:flex`) and once for mobile (`md:hidden`). Both are
-  // in the DOM at every width; CSS decides which one you can see. Counting
-  // nodes gives 8 and means nothing.
   const visibleNavs = await M.locator('nav:visible').count();
   check(visibleNavs === 1, 'exactly one bottom nav is visible on a phone', `got ${visibleNavs}`);
   const navCount = await M.locator('nav:visible a').count();
   check(navCount === 4, 'and it shows four items (Earn is gone)', `got ${navCount}`);
+
+  // The raw node count, which is the one that catches the actual bug. This
+  // assertion used to be impossible: AppLayout rendered BottomNav twice and
+  // ConversationList twice on /home, letting CSS pick, so the DOM held two of
+  // each at every width and only `:visible` meant anything. React mounts what
+  // CSS hides, so the second copy was running its effects — a whole extra
+  // realtime channel and set of queries. Both render once now, and counting
+  // nodes is how that stays true.
+  const domNavs = await M.locator('nav').count();
+  check(domNavs === 1, 'and only one is in the DOM at all — not two with CSS picking',
+    `got ${domNavs}`);
+  // The list's own header, which is unique to it, so this counts mounts rather
+  // than conversation rows.
+  const domLists = await M.locator('text=Search contacts').count();
+  check(domLists === 1, 'and the conversation list is mounted exactly once', `got ${domLists}`);
 
   await M.goto(`${APP}/chat/${mConv.id}`, { waitUntil: 'domcontentloaded' });
   // The long-word message specifically — that is the one under test, and it is
