@@ -54,18 +54,38 @@ DATABASE_URL="postgresql://postgres:<db-password>@db.<project-ref>.supabase.co:5
 > which rows. Policies alone get you `42501 permission denied for table accounts`
 > before any policy is even consulted.
 
-> **The command above is for a fresh database.** These migrations are not
-> idempotent — `0001` fails with `type "account_role" already exists` on a
-> database that already has them. There is no migrations table tracking what has
-> run, so on an existing project pass only the new file:
+**What has already run is now recorded**, in `public.schema_migrations`. The
+command above applies whatever is pending and skips the rest, so it is safe to
+re-run — which it was not before 2026-08-14. The file list is no longer kept by
+hand either; the script reads `supabase/migrations/` in filename order, so a new
+migration needs no wiring up.
+
+```bash
+npm run db:status      # what is applied, what is pending
+npm run db:migrate     # apply everything pending
+node scripts/migrate.mjs --plan   # what would run, in what order — no database
+```
+
+Each file runs in one transaction that also writes its ledger row, so a failure
+rolls back both and there is no half-applied-but-recorded state. An
+already-applied file whose contents have since changed is reported as drift and
+never silently re-run — migrations are a history, so the fix is a new file.
+
+> **A database that predates the ledger has to be adopted once.** These
+> migrations are not idempotent: `0001` fails with `type "account_role" already
+> exists` against a database that already has it. On a project that was migrated
+> by hand, record the existing files as applied *without running them*, then
+> migrate normally:
 >
 > ```bash
-> node scripts/migrate.mjs "$DATABASE_URL" supabase/migrations/0007_drop_earnings.sql
+> node scripts/migrate.mjs "$DATABASE_URL" --baseline \
+>   supabase/migrations/0001_schema.sql ... supabase/migrations/0015_group_management.sql
+> npm run db:migrate
 > ```
 >
-> Each file runs inside a transaction and rolls back on error, so a mistake here
-> is loud rather than destructive. Real migration tracking is worth adding before
-> this list gets much longer.
+> `--baseline` is the one operation here that can lie about reality, so it is
+> never implied, it executes nothing, and it prints every row it writes. Check
+> the list against what the database actually has before trusting it.
 
 No email-provider configuration is needed — accounts are created through the
 admin API, which does not send or validate confirmation mail.
