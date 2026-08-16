@@ -39,6 +39,7 @@ supabase/migrations/0016_message_hides.sql       "delete for me"          <- pen
 supabase/migrations/0017_reactions_realtime.sql  reactions on the live feed <- pending
 supabase/migrations/0018_device_list.sql         drops device binding       <- pending
 supabase/migrations/0019_group_invites.sql       group invites need consent <- pending
+supabase/migrations/0020_edit_history.sql        edit window + history       <- pending
 ```
 
 > `0005` then `0007` on a fresh database is a build-then-demolish, which looks

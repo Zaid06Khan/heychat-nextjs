@@ -449,12 +449,75 @@ check((carolLast || []).length === 0, 'the list RPC returns nothing to a non-mem
 const { data: toDelete } = await A.from('messages')
   .insert({ conversation_id: conv.id, sender_id: aliceId, content: 'delete me', read_by: [aliceId] })
   .select().single();
-await A.from('messages')
-  .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
-  .eq('id', toDelete.id);
+
+const has0020 = await migrationApplied('0020_edit_history.sql');
+if (has0020) {
+  await A.rpc('delete_message_for_everyone', { msg_id: toDelete.id });
+} else {
+  // Pre-0020 the client did this itself. Mirrors interactions.js's fallback.
+  await A.from('messages')
+    .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
+    .eq('id', toDelete.id);
+}
 const { data: afterDelete } = await B.from('messages').select('content, deleted_at').eq('id', toDelete.id).single();
 check(!!afterDelete?.deleted_at && afterDelete.content === null,
   'a deleted message keeps no readable body', `content=${JSON.stringify(afterDelete?.content)}`);
+
+// --- edit window and history (0020) ---
+//
+// The grant is the load-bearing part. A window enforced only inside an RPC is
+// worth nothing while the client can still UPDATE the column directly, which is
+// exactly what messages_update_sender plus a blanket UPDATE grant allowed — the
+// same shape of hole 0015 closed on conversations.
+if (has0020) {
+  const { data: editable } = await A.from('messages')
+    .insert({ conversation_id: conv.id, sender_id: aliceId, content: 'first wording', read_by: [aliceId] })
+    .select().single();
+
+  const { error: directErr } = await A.from('messages')
+    .update({ content: 'rewritten behind the RPC' })
+    .eq('id', editable.id);
+  check(!!directErr, 'the author can no longer UPDATE a message directly',
+    directErr?.message || 'NO ERROR');
+
+  const { error: editErr } = await A.rpc('edit_message', {
+    msg_id: editable.id, new_content: 'second wording',
+  });
+  check(!editErr, 'but can edit through the RPC', editErr?.message || '');
+
+  const { data: hist } = await B.from('message_edits')
+    .select('previous_content').eq('message_id', editable.id);
+  check((hist || []).length === 1 && hist[0].previous_content === 'first wording',
+    'and the previous wording is kept, readable by the other participant',
+    JSON.stringify(hist));
+
+  const { error: notMineErr } = await B.rpc('edit_message', {
+    msg_id: editable.id, new_content: 'bob rewrites alice',
+  });
+  check(!!notMineErr, 'someone else cannot edit it', notMineErr?.message || 'NO ERROR');
+
+  // Backdated past the window with the service role, so this isolates the time
+  // check from every other guard.
+  const { data: old } = await admin.from('messages')
+    .insert({
+      conversation_id: conv.id, sender_id: aliceId, content: 'said long ago',
+      message_type: 'text', read_by: [aliceId],
+      created_date: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    })
+    .select().single();
+  const { error: lateErr } = await A.rpc('edit_message', {
+    msg_id: old.id, new_content: 'quietly rewritten two years later',
+  });
+  check(!!lateErr, 'and an old message can no longer be silently rewritten',
+    lateErr?.message || 'NO ERROR');
+
+  const { data: stillOld } = await B.from('messages').select('content').eq('id', old.id).single();
+  check(stillOld?.content === 'said long ago', 'the old message is unchanged',
+    JSON.stringify(stillOld?.content));
+} else {
+  console.log('  SKIP  edit window and history — 0020_edit_history.sql not applied');
+  console.log('        run it, then this asserts the UPDATE grant is really gone');
+}
 
 // The storage-cleanup queue is server-only, like push_subscriptions.
 const { data: mediaQueue, error: mediaQueueErr } = await A.from('expired_media').select('*');

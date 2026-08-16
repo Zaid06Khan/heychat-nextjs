@@ -15,12 +15,11 @@
  *
  * Compiling is not running. That is the gap this closes.
  *
- * TWO BROWSER CONTEXTS, not two browsers: the device fingerprint is derived
- * from user-agent, screen size, canvas and timezone, so two contexts in one
- * Chromium produce the same fingerprint. Each account stores its own copy of
- * it, so both match and both can sign in — which is what makes a two-user test
- * possible in a single browser, and why logging an existing account in from a
- * genuinely different browser would fail instead.
+ * TWO BROWSER CONTEXTS, not two browsers, so two accounts can be driven as two
+ * real users with separate cookie jars in one Chromium. This used to carry a
+ * caveat about both contexts producing the same device fingerprint; device
+ * binding was removed on 2026-08-16 (FOLLOWUPS #6), so any browser can sign in
+ * to any account with the right password and the caveat is gone.
  *
  * Like the e2e suite, this talks to the REAL Supabase project in .env.local and
  * creates real users. It deletes them again at the end.
@@ -61,9 +60,10 @@ const userM = `pw_m_${stamp}`;
 const userN = `pw_n_${stamp}`;
 
 // Everything created here gets deleted in the finally block. Tracked in a list
-// because the mobile pass needs its own pair: the device fingerprint includes
-// screen size, so an account registered at desktop width cannot sign in from a
-// phone-sized context — the check correctly refuses it.
+// because the mobile pass creates a second pair of its own — not because it has
+// to any more (it now also signs userA in at phone width, which is the point of
+// §6 being closed), but so its layout assertions get a conversation the desktop
+// assertions are not also reading.
 const createdUsers = [userA, userB];
 const PW = 'CorrectHorse9';
 const RECOVERY = 'RecoveryHorse9';
@@ -123,6 +123,26 @@ const openMsgMenu = async (page, text) => {
 const closeMenu = async (page) => {
   await page.mouse.click(5, 400);
   await gone(page, 'button:has-text("Reply")', 5000);
+};
+
+/**
+ * Has this migration been applied?
+ *
+ * Migrations here are run by hand, so a tree carrying code for one nobody has
+ * run yet is a normal state. Assertions about that code would be permanently
+ * red, which trains people to ignore the suite — so they are gated on the
+ * ledger 0016 introduced. No ledger, or no service key, answers "no", which is
+ * the correct assumption in both cases.
+ */
+const migrationApplied = async (filename) => {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) return false;
+  const svc = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const { data } = await svc
+    .from('schema_migrations')
+    .select('filename')
+    .eq('filename', filename)
+    .maybeSingle();
+  return Boolean(data);
 };
 
 const watchConsole = (page, who) => {
@@ -272,20 +292,8 @@ try {
   // failure on a tree where the migration simply has not been run yet.
   // Asked of the migration ledger rather than of pg_catalog: PostgREST only
   // exposes the schemas it is configured for, and pg_publication_tables is not
-  // one of them. A tree that has never been migrated has no ledger at all, and
-  // the error that produces is correctly read as "not applied".
-  let published = null;
-  if (env.SUPABASE_SERVICE_ROLE_KEY) {
-    const svc = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-    const res = await svc
-      .from('schema_migrations')
-      .select('filename')
-      .eq('filename', '0017_reactions_realtime.sql')
-      .maybeSingle();
-    published = res.data;
-  }
-
-  if (published) {
+  // one of them.
+  if (await migrationApplied('0017_reactions_realtime.sql')) {
     check(await seen(B, 'text=👍', 20000),
       'B sees the reaction live, without reloading');
   } else {
@@ -319,7 +327,21 @@ try {
     await A.fill('textarea', 'edited message text');
     await A.keyboard.press('Enter');
     check(await seen(A, 'text=edited message text'), 'the edit saves');
-    check(await seen(A, 'span:has-text("edited")'), 'and shows an "edited" marker');
+    // A button, not a span, since 0020 — "edited" on its own asks a question it
+    // will not answer, so it opens the prior versions.
+    check(await seen(A, 'button:has-text("edited")'), 'and shows an "edited" marker');
+
+    await A.locator('button:has-text("edited")').first().click();
+    if (await migrationApplied('0020_edit_history.sql')) {
+      check(await seen(A, 'text=hello from A'),
+        'and clicking it shows what the message used to say');
+    } else {
+      // Pre-0020 the edit happened in place and kept nothing, so there is
+      // genuinely no history — the panel says so rather than showing an empty
+      // box, and that is the correct behaviour to assert here.
+      check(await seen(A, 'text=No earlier version was recorded'),
+        'and clicking it says no earlier version was kept (0020 not applied)');
+    }
   } else {
     await closeMenu(A);
   }

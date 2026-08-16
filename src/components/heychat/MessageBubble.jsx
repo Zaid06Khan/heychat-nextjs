@@ -2,7 +2,13 @@ import { useState, useRef } from 'react';
 import { Image } from '@/components/ui/image';
 import { Check, CheckCheck, Flame, FileText, MoreHorizontal, Reply, Pencil, Trash2, SmilePlus, EyeOff } from 'lucide-react';
 import { useSignedMedia } from '@/lib/media/useSignedMedia';
-import { QUICK_REACTIONS, summariseReactions } from '@/lib/messages/interactions';
+import { QUICK_REACTIONS, summariseReactions, getEditHistory } from '@/lib/messages/interactions';
+
+// Mirrors message_edit_window() in 0020. Duplicated rather than fetched: the
+// server is the authority and rejects a late edit regardless — this only keeps
+// the menu honest, and one round trip per bubble to learn a constant would be
+// a poor trade.
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 export default function MessageBubble({
   message,
@@ -23,6 +29,8 @@ export default function MessageBubble({
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [openUp, setOpenUp] = useState(true);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState([]);
   const triggerRef = useRef(null);
 
   const time = new Date(message.created_date || message.sent_at).toLocaleTimeString([], {
@@ -45,11 +53,27 @@ export default function MessageBubble({
 
   // Editing only makes sense for text you still own. An image caption is
   // deliberately out of scope rather than half-supported.
-  const canEdit = isOwn && !isDeleted && message.message_type === 'text';
+  // The server enforces the window (0020); this only decides whether to offer
+  // the control. A menu item that always fails is worse than no menu item.
+  const editableUntil =
+    new Date(message.created_date || message.sent_at).getTime() + EDIT_WINDOW_MS;
+  const canEdit =
+    isOwn && !isDeleted && message.message_type === 'text' && Date.now() < editableUntil;
 
   const closeMenus = () => {
     setMenuOpen(false);
     setPickerOpen(false);
+  };
+
+  // Fetched on first open rather than with the thread: most messages are never
+  // edited, and of those that are, most are never asked about.
+  const toggleHistory = async () => {
+    if (showHistory) {
+      setShowHistory(false);
+      return;
+    }
+    setShowHistory(true);
+    if (history.length === 0) setHistory(await getEditHistory(message.id));
   };
 
   /**
@@ -289,14 +313,56 @@ export default function MessageBubble({
 
             <div className="flex items-center gap-1 mt-1 justify-end">
               {message.edited_at && !isDeleted && (
-                <span className={`text-[10px] ${isOwn ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
+                // Clickable, because "edited" on its own asks a question it
+                // will not answer. Anyone who can read the message can read
+                // what it used to say — the people who saw the original are the
+                // people entitled to know it changed.
+                <button
+                  type="button"
+                  onClick={toggleHistory}
+                  aria-expanded={showHistory}
+                  className={`text-[10px] underline underline-offset-2 ${
+                    isOwn ? 'text-primary-foreground/60' : 'text-muted-foreground'
+                  }`}
+                >
                   edited
-                </span>
+                </button>
               )}
               {message.expiry_at && <Flame className="w-3 h-3 opacity-70" />}
               <span className={`text-[10px] font-bold tracking-wide ${isOwn ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{time}</span>
               {isOwn && !isDeleted && (isRead ? <CheckCheck className="w-3 h-3" /> : <Check className="w-3 h-3" />)}
             </div>
+
+            {/* Prior versions, oldest first, inside the bubble so it is obvious
+                which message they belong to. An empty result means 0020 has not
+                been applied — everything before it edited in place and kept
+                nothing, so there is genuinely no history to show and saying so
+                beats an empty box. */}
+            {showHistory && (
+              <div
+                className={`mt-1.5 pt-1.5 border-t text-[11px] space-y-1 ${
+                  isOwn ? 'border-primary-foreground/25' : 'border-border'
+                }`}
+              >
+                {history.length === 0 ? (
+                  <p className="italic opacity-70">No earlier version was recorded.</p>
+                ) : (
+                  history.map((h, i) => (
+                    <div key={i} className="opacity-80">
+                      <p className="whitespace-pre-wrap break-words line-through">
+                        {h.previous_content || <span className="italic">(empty)</span>}
+                      </p>
+                      <p className="opacity-70">
+                        {new Date(h.edited_at).toLocaleString([], {
+                          hour: '2-digit', minute: '2-digit',
+                          day: 'numeric', month: 'short',
+                        })}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Reactions hang under the bubble. Tapping one you already gave
