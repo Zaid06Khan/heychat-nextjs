@@ -1,4 +1,3 @@
-import { getSupabaseAdminClient } from '@/lib/supabase/admin';
 import { getSupabaseRouteClient } from '@/lib/supabase/server';
 import { usernameToEmail, jsonError } from '@/lib/auth/shared';
 import { check, clientKey, tooManyRequests } from '@/lib/auth/rateLimit';
@@ -19,7 +18,7 @@ export async function POST(request) {
     return jsonError('Invalid request body.');
   }
 
-  const { username, password, device_fingerprint } = body ?? {};
+  const { username, password } = body ?? {};
 
   if (!username || !password) {
     return jsonError('Username and password are required.');
@@ -50,38 +49,25 @@ export async function POST(request) {
 
   const userId = signIn.user.id;
 
-  // Device binding, preserved from the original app. Note this is checked AFTER
-  // the password, so it can't be used to probe which usernames exist.
+  // DEVICE BINDING WAS REMOVED HERE on 2026-08-16, deliberately.
   //
-  // It is still a browser-supplied fingerprint, so it is a friction measure and
-  // not a security boundary — and it locks people out for benign reasons like a
-  // browser update. Revisiting it is a follow-up.
-  const admin = getSupabaseAdminClient();
-  const { data: secrets } = await admin
-    .from('account_secrets')
-    .select('device_fingerprint_hash')
-    .eq('account_id', userId)
-    .maybeSingle();
-
-  const knownDevice = secrets?.device_fingerprint_hash;
-
-  if (knownDevice && device_fingerprint && knownDevice !== device_fingerprint) {
-    await supabase.auth.signOut();
-    return jsonError(
-      'Unrecognized device — access denied. For your security, HeyChat accounts are bound to the device they were created on.',
-      403
-    );
-  }
-
-  // First login from a client that reports a fingerprint when none was stored.
-  if (!knownDevice && device_fingerprint) {
-    await admin
-      .from('account_secrets')
-      .upsert(
-        { account_id: userId, device_fingerprint_hash: device_fingerprint },
-        { onConflict: 'account_id' }
-      );
-  }
+  // Logging in used to require a browser fingerprint matching the one stored at
+  // signup — user-agent, screen dimensions, a canvas render, timezone,
+  // hardwareConcurrency. Between a laptop and a phone at least four of those
+  // differ, always, so an account created on one could never be used on the
+  // other. Not "might drift": impossible by construction, and undocumented
+  // anywhere a user would see it.
+  //
+  // What it bought was small. The value was computed by the client and sent in
+  // the request, so it was a weak shared secret rather than proof of anything —
+  // its only protection was that the stored copy lived in a table clients
+  // cannot read. What it cost was a messenger that could not be used on a
+  // second device, and a permanent lockout on a browser update, a GPU driver
+  // update or a new monitor, with the recovery password as the only way back
+  // and no email to fall back on.
+  //
+  // See FOLLOWUPS #6. The replacement is ordinary sessions plus a device list
+  // the account holder can review and revoke.
 
   await supabase
     .from('accounts')

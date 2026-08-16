@@ -1,7 +1,6 @@
 'use client';
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
-import { generateDeviceFingerprint } from './deviceFingerprint';
 import { disablePush } from '@/lib/push/client';
 
 /**
@@ -109,7 +108,6 @@ export async function register({
     display_name,
     avatar,
     recovery_password,
-    device_fingerprint: await generateDeviceFingerprint(),
   });
 
   invalidateCurrentAccount();
@@ -121,7 +119,6 @@ export async function login({ username, password }) {
   const { account } = await postJson('/api/auth/login', {
     username,
     password,
-    device_fingerprint: await generateDeviceFingerprint(),
   });
 
   invalidateCurrentAccount();
@@ -216,22 +213,18 @@ export async function getCurrentAccount({ force = false } = {}) {
   }
 }
 
-export async function verifyDevice(username) {
-  await postJson('/api/auth/device', {
-    username,
-    device_fingerprint: await generateDeviceFingerprint(),
-  });
-  return true;
-}
-
-export async function resetPassword({ username, newPassword }) {
-  await postJson('/api/auth/device', {
-    username,
-    device_fingerprint: await generateDeviceFingerprint(),
-    new_password: newPassword,
-  });
-  return true;
-}
+/**
+ * `verifyDevice()` and `resetPassword()` used to live here, and both went with
+ * device binding on 2026-08-16 (FOLLOWUPS #6). They backed a "reset your
+ * password from the device you signed up on" flow whose entire basis was the
+ * fingerprint — with binding gone there is nothing left for them to check, and
+ * a reset path that verifies nothing is worse than no reset path at all.
+ *
+ * `resetPasswordWithRecovery()` below is now the only way back into an account
+ * whose password is lost, which makes setting a recovery password at signup the
+ * thing that actually matters. See FOLLOWUPS #6 on the two layers disagreeing
+ * about whether it is required.
+ */
 
 export async function resetPasswordWithRecovery({
   username,

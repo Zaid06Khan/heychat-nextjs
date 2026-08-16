@@ -97,8 +97,36 @@ const noUser = await post('/api/auth/login', { username: `ghost_${stamp}`, passw
 check(noUser.status === 401 && noUser.json?.error === badPw.json?.error,
   'unknown user gives same error as wrong password (no enumeration)');
 
-const badDevice = await post('/api/auth/login', { username: alice, password: PW, device_fingerprint: 'some-other-device' });
-check(badDevice.status === 403, 'unrecognized device rejected', `status=${badDevice.status}`);
+// The inverse of what this used to assert. Device binding refused a login whose
+// fingerprint did not match the one stored at signup, which made one account
+// permanently one device (FOLLOWUPS #6). It was dropped on 2026-08-16, so a
+// login from anywhere with the right password must now succeed — including one
+// still sending the old field, which the route ignores.
+const otherDevice = await post('/api/auth/login', {
+  username: alice, password: PW, device_fingerprint: 'a-completely-different-device',
+});
+check(otherDevice.status === 200,
+  'the same account signs in from a different device', `status=${otherDevice.status}`);
+
+// Bob rather than alice: the per-username login limit is 5 per 15 minutes and
+// alice is already at three route logins by this point in the run.
+const noDevice = await post('/api/auth/login', { username: bob, password: PW });
+check(noDevice.status === 200,
+  'and with no device field at all', `status=${noDevice.status}`);
+
+// The route that existed only to check a fingerprint is gone, and with it the
+// "reset your password from the device you signed up on" path — there is
+// nothing left for it to verify.
+//
+// NOT a 404, and that is worth writing down rather than discovering twice: the
+// app is a React Router SPA behind an optional catch-all (`[[...slug]]`), so a
+// path with no route handler falls through to it and returns the app shell as
+// 200 HTML. What proves the endpoint is gone is that it no longer answers as
+// an API at all — no JSON, so nothing that could say `ok`.
+const deviceRoute = await post('/api/auth/device', { username: alice, device_fingerprint: FP });
+check(deviceRoute.json === null && deviceRoute.json?.ok !== true,
+  '/api/auth/device no longer answers as an API — the fingerprint reset path is gone',
+  `status=${deviceRoute.status} json=${JSON.stringify(deviceRoute.json)}`);
 
 console.log('\n--- 4. SEND A MESSAGE ---');
 const A = await signedInClient(alice);

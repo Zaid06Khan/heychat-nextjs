@@ -7,6 +7,7 @@ import { LANGUAGES, setLanguage } from '@/lib/i18n';
 import ChangePasswordDialog from '@/components/heychat/ChangePasswordDialog';
 import RecoveryPasswordDialog from '@/components/heychat/RecoveryPasswordDialog';
 import NotificationSettings from '@/components/heychat/NotificationSettings';
+import DeviceList from '@/components/heychat/DeviceList';
 import { COUNTRIES } from '@/lib/countries';
 
 export default function Settings() {
@@ -135,20 +136,9 @@ export default function Settings() {
 
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
-            <Smartphone className="w-4 h-4" /> Device
+            <Smartphone className="w-4 h-4" /> Devices
           </h2>
-          <div className="bg-card rounded-2xl border border-border p-4">
-            <div className="flex items-center gap-3">
-              <Smartphone className="w-5 h-5 text-foreground" />
-              <div>
-                <p className="text-sm font-medium text-foreground">Device-bound account</p>
-                <p className="text-xs text-muted-foreground mt-0.5">This account is permanently linked to this device's fingerprint.</p>
-                <p className="text-xs text-muted-foreground mt-1 font-mono break-all">
-                  {account.device_fingerprint_hash?.substring(0, 32)}...
-                </p>
-              </div>
-            </div>
-          </div>
+          <DeviceList />
         </div>
 
         <div>

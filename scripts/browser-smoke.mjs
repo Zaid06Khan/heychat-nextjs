@@ -476,10 +476,37 @@ try {
   // because the Chrome extension could not resize below desktop. This app is
   // mobile-first, so that was the least-verified thing in it.
   //
-  // A phone context needs its own account: the fingerprint includes screen
-  // size, so an account registered at 1280px cannot sign in at 390px — the
-  // device check correctly refuses it. Which is itself worth knowing, because
-  // it means a user who switches from desktop to phone is locked out (#6).
+  // THE PHONE CAN NOW SIGN IN AS THE DESKTOP ACCOUNT. This comment used to say
+  // the opposite, and it was the sharpest evidence for FOLLOWUPS #6: the device
+  // fingerprint includes screen size, so an account registered at 1280px was
+  // refused at 390px and this pass had to register an account of its own. That
+  // is a messenger you cannot use on your phone and your laptop. Binding was
+  // dropped on 2026-08-16, and this is the assertion that proves it — a second
+  // context, phone-sized, signing in as the account userA created at desktop
+  // width. It gets its own context so nothing below is disturbed.
+  const ctxCross = await browser.newContext({
+    viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3,
+  });
+  const X = await ctxCross.newPage();
+  await X.goto(`${APP}/login`, { waitUntil: 'domcontentloaded' });
+  const xInputs = X.locator('input');
+  await xInputs.nth(0).fill(userA);
+  await xInputs.nth(1).fill(PW);
+  const xLogin = X.waitForResponse(
+    (r) => r.url().includes('/api/auth/login'), { timeout: 25000 }
+  ).catch(() => null);
+  await X.click('button[type="submit"]');
+  const xRes = await xLogin;
+  check(xRes?.status() === 200,
+    'a desktop-registered account signs in at phone width (binding is gone)',
+    `status=${xRes?.status()}`);
+  check(await X.waitForURL(/\/home/, { timeout: 20000 }).then(() => true).catch(() => false),
+    'and lands on /home rather than being refused');
+  await ctxCross.close();
+
+  // userM still registers its own account below — not because it has to now,
+  // but because the layout assertions want a conversation of their own that the
+  // desktop assertions above are not also reading.
   const ctxM = await browser.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,

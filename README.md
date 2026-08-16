@@ -34,7 +34,9 @@ supabase/migrations/0012_message_interactions.sql replies, reactions, edit, dele
 supabase/migrations/0013_typing_channels.sql     typing-indicator authorisation
 supabase/migrations/0014_unread_counts.sql       unread counting in Postgres
 supabase/migrations/0015_group_management.sql    add/remove/rename/leave a group
-supabase/migrations/0016_message_hides.sql       "delete for me"  <- not yet applied
+supabase/migrations/0016_message_hides.sql       "delete for me"          <- pending
+supabase/migrations/0017_reactions_realtime.sql  reactions on the live feed <- pending
+supabase/migrations/0018_device_list.sql         drops device binding       <- pending
 ```
 
 > `0005` then `0007` on a fresh database is a build-then-demolish, which looks
@@ -103,7 +105,7 @@ npm run test:e2e -- http://localhost:3000
 ```
 
 Registers three throwaway users, walks register → login → send a message, then
-asserts the boundaries hold, and deletes the users. **85 assertions**, covering:
+asserts the boundaries hold, and deletes the users. **87 assertions**, covering:
 
 - non-participants can't read a conversation, and nobody can send as someone else
 - `account_secrets` is unreachable and a user can't self-promote to admin
@@ -142,19 +144,22 @@ and a review had all missed: a message menu clipped out of view by its scroll
 container, and a realtime channel that threw on every page load in development.
 **Compiling is not running**, and that is the gap this closes.
 
-Two browser *contexts* rather than two browsers, deliberately: the device
-fingerprint comes from user-agent, screen size, canvas and timezone, so both
-contexts produce the same one and both accounts can sign in. A genuinely
-different browser would fail the device check — which is also why you must
-*register* a second account when testing by hand, not log an existing one in.
+Two browser *contexts* rather than two browsers, so two accounts can be driven
+as two real users in one Chromium. This used to come with a caveat about device
+fingerprints matching; device binding was removed on 2026-08-16 (`FOLLOWUPS.md`
+§6), so any browser can now sign in to any account with the right password, and
+testing by hand no longer means registering a fresh account each time.
 
 The last section runs at **390×844** and is the only thing that has ever
 rendered this mobile-first app at phone width. It asserts no horizontal overflow
 on `/home`, `/chat`, `/settings` and `/contacts`, that exactly one bottom nav is
-visible, and that the message action menu stays inside the viewport for both
-sent and received messages. It needs its own account, because a phone-sized
-context produces a different fingerprint and cannot sign in as a desktop one —
-see `FOLLOWUPS.md` §6, which is a bigger deal than it sounds.
+visible and that only one is in the DOM, and that the message action menu stays
+inside the viewport for both sent and received messages.
+
+It opens by signing a **desktop-registered account in at phone width**, which is
+the assertion that proves §6 is closed. That was impossible until 0018: the
+fingerprint included screen size, so this section had to register an account of
+its own, and a user moving between a laptop and a phone was locked out.
 
 Push **delivery** is out of reach here: headless Chromium reports
 `Notification.permission` as `denied`, so the app correctly declines to register

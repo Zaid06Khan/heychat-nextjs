@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { verifyDevice, resetPassword, resetPasswordWithRecovery } from '@/lib/heychatAuth';
-import { ArrowLeft, Eye, EyeOff, ShieldCheck, Smartphone, CheckCircle2, KeyRound } from 'lucide-react';
+import { resetPasswordWithRecovery } from '@/lib/heychatAuth';
+import { ArrowLeft, Eye, EyeOff, CheckCircle2, KeyRound } from 'lucide-react';
 import Logo from '@/components/heychat/Logo';
 
 export default function ForgotPassword() {
@@ -30,34 +30,6 @@ export default function ForgotPassword() {
     setStep(2);
   };
 
-  const handleDeviceVerify = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      await verifyDevice(username.trim());
-      setStep(3);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeviceReset = async (e) => {
-    e.preventDefault();
-    setError('');
-    if (!validateNewPassword()) return;
-    setLoading(true);
-    try {
-      await resetPassword({ username: username.trim(), newPassword });
-      setStep(5);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleRecoveryReset = async (e) => {
     e.preventDefault();
     setError('');
@@ -66,7 +38,7 @@ export default function ForgotPassword() {
     setLoading(true);
     try {
       await resetPasswordWithRecovery({ username: username.trim(), recoveryPassword, newPassword });
-      setStep(5);
+      setStep(3);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -116,60 +88,12 @@ export default function ForgotPassword() {
           </>
         )}
 
+        {/* There used to be a step 2 offering a choice: verify with this
+            device, or use the recovery password. The device option went with
+            device binding (FOLLOWUPS #6) — it had nothing left to verify — so
+            the recovery password is now the only route, and a menu with one
+            item is not a menu. Username goes straight here. */}
         {step === 2 && (
-          <>
-            <h1 className="text-3xl font-heading font-bold text-foreground mb-2">Verify it's you</h1>
-            <p className="text-muted-foreground mb-8">Choose how you'd like to verify your identity for @{username}.</p>
-            {error && <div className="bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3 text-sm text-destructive mb-4">{error}</div>}
-            <div className="space-y-3">
-              <button onClick={handleDeviceVerify} disabled={loading} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-primary/50 transition text-left disabled:opacity-50">
-                <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center shrink-0">
-                  <Smartphone className="w-6 h-6 text-foreground" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground">Use this device</p>
-                  <p className="text-xs text-muted-foreground">Verify using your device fingerprint</p>
-                </div>
-              </button>
-              <button onClick={() => { setError(''); resetFormState(); setStep(4); }} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-primary/50 transition text-left">
-                <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
-                  <KeyRound className="w-6 h-6 text-primary" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground">Use recovery password</p>
-                  <p className="text-xs text-muted-foreground">Enter the recovery password you set at registration</p>
-                </div>
-              </button>
-            </div>
-          </>
-        )}
-
-        {step === 3 && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <ShieldCheck className="w-6 h-6 text-foreground" />
-              <h1 className="text-3xl font-heading font-bold text-foreground">Set new password</h1>
-            </div>
-            <p className="text-muted-foreground mb-8">Device verified. Choose a new password for @{username}.</p>
-            <form onSubmit={handleDeviceReset} className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">New password</label>
-                <div className="relative">
-                  <input type={showPassword ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min 8 chars, 1 uppercase, 1 number" required className="w-full bg-secondary rounded-xl px-4 py-3 pr-12 text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary" />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">{showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground mb-1.5 block">Confirm new password</label>
-                <input type={showPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="••••••••" required className="w-full bg-secondary rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary" />
-              </div>
-              {error && <div className="bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3 text-sm text-destructive">{error}</div>}
-              <button type="submit" disabled={loading} className="w-full py-3.5 rounded-xl gradient-bg text-white font-semibold disabled:opacity-50 hover:opacity-90 transition glow-violet">{loading ? 'Resetting...' : 'Reset password'}</button>
-            </form>
-          </>
-        )}
-
-        {step === 4 && (
           <>
             <div className="flex items-center gap-2 mb-2">
               <KeyRound className="w-6 h-6 text-primary" />
@@ -195,11 +119,11 @@ export default function ForgotPassword() {
               {error && <div className="bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3 text-sm text-destructive">{error}</div>}
               <button type="submit" disabled={loading} className="w-full py-3.5 rounded-xl gradient-bg text-white font-semibold disabled:opacity-50 hover:opacity-90 transition glow-violet">{loading ? 'Resetting...' : 'Reset password'}</button>
             </form>
-            <button onClick={() => { setStep(2); resetFormState(); }} className="w-full text-center text-sm text-muted-foreground mt-4 hover:text-foreground transition">← Back to options</button>
+            <button onClick={() => { setStep(1); resetFormState(); }} className="w-full text-center text-sm text-muted-foreground mt-4 hover:text-foreground transition">← Use a different username</button>
           </>
         )}
 
-        {step === 5 && (
+        {step === 3 && (
           <div className="text-center">
             <div className="w-20 h-20 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-6">
               <CheckCircle2 className="w-10 h-10 text-foreground" />

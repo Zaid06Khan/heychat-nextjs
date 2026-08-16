@@ -34,7 +34,6 @@ export async function POST(request) {
     display_name,
     avatar,
     recovery_password,
-    device_fingerprint,
   } = body ?? {};
 
   // Accounts here are free, instant and anonymous, and the app pays money. That
@@ -111,12 +110,15 @@ export async function POST(request) {
     );
   }
 
+  // `device_fingerprint_hash` used to be written here too. Device binding was
+  // removed on 2026-08-16 (FOLLOWUPS #6) and 0018 drops the column; the
+  // recovery password is now the only thing this table holds, and the only way
+  // back into an account whose password is lost.
   await admin.from('account_secrets').insert({
     account_id: userId,
     recovery_password_hash: recovery_password
       ? await bcrypt.hash(recovery_password, 12)
       : null,
-    device_fingerprint_hash: device_fingerprint || null,
   });
 
   // Sign in immediately so the browser leaves with a real session cookie.
