@@ -264,11 +264,39 @@ try {
   await A.locator('button:has-text("👍")').first().click();
   check(await seen(A, 'text=👍'), 'a reaction renders on the bubble');
 
-  // Reactions are deliberately NOT in the realtime feed yet (FOLLOWUPS #11), so
-  // this asserts what the app actually promises: B sees it on next load.
+  // Live arrival depends on 0017 having put message_reactions on the realtime
+  // publication. A client can subscribe to an unpublished table perfectly
+  // happily — the channel joins, no error is raised, and no event ever comes —
+  // so the capability is checked against the database rather than inferred from
+  // the subscription succeeding. Without it this would be a silent false
+  // failure on a tree where the migration simply has not been run yet.
+  // Asked of the migration ledger rather than of pg_catalog: PostgREST only
+  // exposes the schemas it is configured for, and pg_publication_tables is not
+  // one of them. A tree that has never been migrated has no ledger at all, and
+  // the error that produces is correctly read as "not applied".
+  let published = null;
+  if (env.SUPABASE_SERVICE_ROLE_KEY) {
+    const svc = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+    const res = await svc
+      .from('schema_migrations')
+      .select('filename')
+      .eq('filename', '0017_reactions_realtime.sql')
+      .maybeSingle();
+    published = res.data;
+  }
+
+  if (published) {
+    check(await seen(B, 'text=👍', 20000),
+      'B sees the reaction live, without reloading');
+  } else {
+    console.log('  SKIP  live reactions — 0017_reactions_realtime.sql not applied');
+    console.log('        run it, then this asserts arrival with no reload');
+  }
+
+  // Either way it must survive a reload, which is the weaker promise the app
+  // made before 0017 and still makes after it.
   await B.reload({ waitUntil: 'domcontentloaded' });
-  check(await seen(B, 'text=👍'),
-    'and B sees it after reloading (reactions are not realtime yet)');
+  check(await seen(B, 'text=👍'), 'and it is still there after B reloads');
 
   await openMsgMenu(B, 'typing a reply');
   await B.locator('button:has-text("Reply")').click();
@@ -400,6 +428,48 @@ try {
   await A.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
   check(await seen(A, `text=${userB}`),
     'and it is still there on /contacts, where the sidebar persists');
+
+  console.log('\n--- 7b. A THREAD LONGER THAN THE LOAD LIMIT ---');
+  // ChatView loads 200 messages. It used to take them ASCENDING, which is the
+  // OLDEST 200 — so past that length a conversation showed the first 200
+  // messages ever sent and nothing since, and new arrivals never appeared.
+  // Nothing caught it because no test conversation had ever been long enough.
+  // Its own conversation, so the 205 rows cannot disturb the unread counts and
+  // last-message previews asserted above.
+  if (env.SUPABASE_SERVICE_ROLE_KEY) {
+    const svc = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+    const [{ data: aAcc }, { data: bAcc }] = await Promise.all([
+      svc.from('accounts').select('id').eq('username', userA).single(),
+      svc.from('accounts').select('id').eq('username', userB).single(),
+    ]);
+    const { data: longConv } = await svc.from('conversations')
+      .insert({ type: 'direct', participant_ids: [aAcc.id, bAcc.id] })
+      .select().single();
+
+    const base = Date.now() - 300 * 60 * 1000;
+    const rows = Array.from({ length: 205 }, (_, n) => ({
+      conversation_id: longConv.id,
+      sender_id: n % 2 ? aAcc.id : bAcc.id,
+      // First and last are named so each can be asserted on by itself.
+      content: n === 0 ? 'OLDEST-OF-205' : n === 204 ? 'NEWEST-OF-205' : `bulk ${n}`,
+      message_type: 'text',
+      read_by: [aAcc.id],
+      created_date: new Date(base + n * 60 * 1000).toISOString(),
+    }));
+    for (let n = 0; n < rows.length; n += 50) {
+      await svc.from('messages').insert(rows.slice(n, n + 50));
+    }
+
+    await A.goto(`${APP}/chat/${longConv.id}`, { waitUntil: 'domcontentloaded' });
+    check(await seen(A, 'text=NEWEST-OF-205', 20000),
+      'a 205-message thread shows the NEWEST message');
+    check(await A.locator('text=OLDEST-OF-205').count() === 0,
+      'and not the oldest, which falls outside the 200 it loads');
+
+    await svc.from('conversations').delete().eq('id', longConv.id);
+  } else {
+    console.log('  SKIP  long-thread ordering — no service role key');
+  }
 
   console.log('\n--- 9. PHONE WIDTH (390x844) ---');
   // FOLLOWUPS #9 carried "nothing has been checked at phone width" for days

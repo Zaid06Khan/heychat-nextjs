@@ -17,6 +17,8 @@ export default function MessageBubble({
   onDelete,
   onHide,
   onReact,
+  onJumpTo,
+  highlighted,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -135,7 +137,17 @@ export default function MessageBubble({
   };
 
   return (
-    <div className={`group flex ${isOwn ? 'justify-end' : 'justify-start'} animate-message-in`}>
+    // The id is the jump target for a reply quote pointing at this message,
+    // and `highlighted` is the flash that follows the scroll — without it you
+    // arrive somewhere in the thread with no idea which message you were sent
+    // to. A ring rather than a background change, so it reads on both the
+    // paper and the electric-blue bubble.
+    <div
+      id={`msg-${message.id}`}
+      className={`group flex ${isOwn ? 'justify-end' : 'justify-start'} animate-message-in ${
+        highlighted ? 'rounded-2xl ring-2 ring-accent ring-offset-2 ring-offset-secondary transition-shadow' : ''
+      }`}
+    >
       <div className={`flex items-center gap-1 max-w-[85%] ${isOwn ? 'flex-row' : 'flex-row-reverse'}`}>
         {/* The action affordance sits outside the bubble so it never covers the
             text. Hidden until hover on a pointer device; on touch there is no
@@ -239,10 +251,28 @@ export default function MessageBubble({
                 deleted or expired — reply_to_id is ON DELETE SET NULL, so the
                 reply outlives what it answered and says so. */}
             {message.reply_to_id && (
+              // A button only when there is somewhere to go. An original that
+              // is quoted but not itself on screen (older than the loaded 200)
+              // still shows its preview — it just cannot be scrolled to,
+              // because it is not rendered.
               <div
+                {...(replyTo?.canJump
+                  ? {
+                      role: 'button',
+                      tabIndex: 0,
+                      onClick: () => onJumpTo?.(replyTo.id),
+                      onKeyDown: (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onJumpTo?.(replyTo.id);
+                        }
+                      },
+                      'aria-label': `Go to ${replyTo.senderName}'s message`,
+                    }
+                  : {})}
                 className={`mb-1.5 pl-2 border-l-2 rounded-sm text-xs ${
                   isOwn ? 'border-primary-foreground/40 opacity-80' : 'border-primary opacity-75'
-                }`}
+                } ${replyTo?.canJump ? 'cursor-pointer hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring' : ''}`}
               >
                 {replyTo ? (
                   <>

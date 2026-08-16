@@ -11,7 +11,9 @@ import {
   deleteMessageForEveryone,
   hideMessageForMe,
   getHiddenMessageIds,
+  getMessagesByIds,
 } from '@/lib/messages/interactions';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { createTypingChannel } from '@/lib/messages/typing';
 import { markRead } from '@/lib/unread';
 import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle } from 'lucide-react';
@@ -45,6 +47,12 @@ export default function ChatView() {
   const [editing, setEditing] = useState(null);
   const [typingNames, setTypingNames] = useState([]);
   const [sendError, setSendError] = useState(null);
+  // Originals quoted by a reply but not themselves in the loaded 200.
+  const [quotedById, setQuotedById] = useState(new Map());
+  const [highlightId, setHighlightId] = useState(null);
+  // The ids currently on screen, readable from inside a subscription callback
+  // without making `messages` a dependency of the effect that opens it.
+  const messageIdsRef = useRef(new Set());
   const typingRef = useRef(null);
   const [otherUser, setOtherUser] = useState(null);
   const [members, setMembers] = useState([]);
@@ -55,6 +63,34 @@ export default function ChatView() {
   useEffect(() => {
     if (!conversationId) return;
     let unsub;
+
+    /**
+     * Reactions, live.
+     *
+     * They used to arrive only when the thread reloaded for some other reason,
+     * so someone reacting to your message was invisible until you sent one.
+     * `message_reactions` carries no conversation_id, so this cannot be
+     * filtered server-side the way messages are — instead every event the
+     * caller is entitled to see (Realtime enforces RLS) is checked against the
+     * ids currently on screen, and anything else is dropped. Reading those ids
+     * from a ref keeps `messages` out of this effect's dependencies, which
+     * would otherwise tear the channel down and rebuild it on every new
+     * message.
+     */
+    const supabase = getSupabaseBrowserClient();
+    const reactionChannel = supabase
+      .channel(`chat-reactions:${conversationId}:${Math.random().toString(36).slice(2)}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'message_reactions' },
+        (payload) => {
+          const id = payload.new?.message_id || payload.old?.message_id;
+          if (!id || !messageIdsRef.current.has(id)) return;
+          getReactions([...messageIdsRef.current]).then(setReactions);
+        }
+      )
+      .subscribe();
+
     (async () => {
       await loadConversation();
       await loadMessages();
@@ -74,6 +110,7 @@ export default function ChatView() {
 
     return () => {
       if (unsub) unsub();
+      supabase.removeChannel(reactionChannel);
       typingRef.current?.close();
       typingRef.current = null;
       setTypingNames([]);
@@ -107,9 +144,17 @@ export default function ChatView() {
 
   const loadMessages = async () => {
     try {
-      const msgs = await base44.entities.Message.filter(
-        { conversation_id: conversationId }, 'created_date', 200
+      // NEWEST 200, then flipped back into reading order.
+      //
+      // This used to sort ascending with the same limit, which takes the OLDEST
+      // 200 — so any conversation past 200 messages showed the first 200 ever
+      // sent and nothing since, and new messages never appeared at all. Nobody
+      // hit it because no test conversation had ever been that long; a 220-
+      // message fixture built to test reply quotes is what surfaced it.
+      const newest = await base44.entities.Message.filter(
+        { conversation_id: conversationId }, '-created_date', 200
       );
+      const msgs = [...newest].reverse();
       // Still filtered here, but no longer deleted here. The sweep runs every
       // five minutes (0010), so a row can outlive its expiry by a few minutes —
       // hiding it locally keeps "disappearing" honest on screen in the gap.
@@ -125,6 +170,18 @@ export default function ChatView() {
         ? unexpired.filter((m) => !hidden.has(m.id))
         : unexpired;
       setMessages(active);
+      messageIdsRef.current = new Set(active.map((m) => m.id));
+
+      // Originals quoted by a reply that are not themselves in this batch —
+      // older than the 200 loaded. Without this the bubble claims the original
+      // is unavailable when it is merely further up.
+      const loaded = messageIdsRef.current;
+      const missingQuotes = [
+        ...new Set(
+          active.map((m) => m.reply_to_id).filter((id) => id && !loaded.has(id))
+        ),
+      ];
+      setQuotedById(await getMessagesByIds(missingQuotes));
 
       setReactions(await getReactions(active.map((m) => m.id)));
 
@@ -252,14 +309,20 @@ export default function ChatView() {
   /** Resolves a reply_to_id into something the bubble can quote. */
   const quoteFor = (message) => {
     if (!message.reply_to_id) return null;
-    const original = messages.find((m) => m.id === message.reply_to_id);
-    // Not found means it was deleted, expired, or scrolled out of the 200 the
-    // thread loads. The bubble renders "original message unavailable" either
-    // way, which is honest without pretending to know which.
+
+    // On screen first, then the batch fetched for quotes older than the loaded
+    // 200. Only the first case can be scrolled to, because only it is rendered.
+    const onScreen = messages.find((m) => m.id === message.reply_to_id);
+    const original = onScreen || quotedById.get(message.reply_to_id);
+
+    // Still nothing means deleted or expired — genuinely unavailable, which is
+    // what the bubble will say. Being merely old is no longer in this bucket.
     if (!original || original.deleted_at) return null;
 
     const member = members.find((m) => m.id === original.sender_id);
     return {
+      id: original.id,
+      canJump: Boolean(onScreen),
       senderName:
         original.sender_id === session.id
           ? 'You'
@@ -275,6 +338,23 @@ export default function ChatView() {
                 ? '🎤 Voice message'
                 : '📎 Attachment',
     };
+  };
+
+  /**
+   * Scrolls to the message a reply is quoting, and flashes it.
+   *
+   * The flash is the point: on a busy thread, scrolling alone leaves you
+   * wondering which of the messages now on screen you were sent to. Only
+   * offered for originals actually rendered — see `canJump` in quoteFor.
+   */
+  const jumpToMessage = (messageId) => {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightId(messageId);
+    window.setTimeout(() => {
+      setHighlightId((current) => (current === messageId ? null : current));
+    }, 1600);
   };
 
   const applyMute = async (hours) => {
@@ -464,6 +544,8 @@ export default function ChatView() {
                 onDelete={handleDelete}
                 onHide={handleHide}
                 onReact={handleReact}
+                onJumpTo={jumpToMessage}
+                highlighted={highlightId === msg.id}
               />
             );
           })}

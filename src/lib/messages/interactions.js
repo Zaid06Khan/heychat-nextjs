@@ -140,6 +140,34 @@ export async function hideMessageForMe(messageId, accountId) {
 }
 
 /**
+ * Fetches specific messages by id, for quotes that fall outside the thread.
+ *
+ * `ChatView` loads the newest 200 messages, so a reply to anything older had no
+ * original to point at and rendered "original message unavailable" — technically
+ * true of a deleted message and simply wrong for an old one. This resolves the
+ * difference.
+ *
+ * RLS decides visibility, so an id from a conversation the caller is not in
+ * comes back empty rather than leaking a preview. Tombstones are excluded here
+ * rather than at the call site because a deleted original genuinely *is*
+ * unavailable, which is the one case the old copy was right about.
+ *
+ * @returns {Promise<Map<string, object>>}
+ */
+export async function getMessagesByIds(ids = []) {
+  if (ids.length === 0) return new Map();
+
+  const { data, error } = await getSupabaseBrowserClient()
+    .from('messages')
+    .select('id, sender_id, content, message_type, deleted_at, expiry_at')
+    .in('id', ids)
+    .is('deleted_at', null);
+
+  if (error) return new Map();
+  return new Map((data || []).map((m) => [m.id, m]));
+}
+
+/**
  * Which of these messages has the caller hidden?
  *
  * Degrades to "none" rather than throwing. Migrations here are applied by hand
