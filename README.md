@@ -66,9 +66,9 @@ hand either; the script reads `supabase/migrations/` in filename order, so a new
 migration needs no wiring up.
 
 ```bash
+npm run db:plan        # what would run, in what order — needs no database
 npm run db:status      # what is applied, what is pending
 npm run db:migrate     # apply everything pending
-node scripts/migrate.mjs --plan   # what would run, in what order — no database
 ```
 
 Each file runs in one transaction that also writes its ledger row, so a failure
@@ -89,8 +89,11 @@ never silently re-run — migrations are a history, so the fix is a new file.
 > ```
 >
 > `--baseline` is the one operation here that can lie about reality, so it is
-> never implied, it executes nothing, and it prints every row it writes. Check
-> the list against what the database actually has before trusting it.
+> never implied, it executes nothing, and it prints every row it writes. **It
+> also refuses to run without an explicit file list** — baselining the whole
+> folder would record migrations nobody has run as done, after which
+> `db:migrate` skips them permanently, which is worse than any failure it could
+> have prevented. Check the list against what the database actually has.
 
 No email-provider configuration is needed — accounts are created through the
 admin API, which does not send or validate confirmation mail.

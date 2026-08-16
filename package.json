@@ -9,7 +9,7 @@
     "lint": "next lint",
     "db:migrate": "node scripts/migrate.mjs \"$DATABASE_URL\"",
     "db:status": "node scripts/migrate.mjs \"$DATABASE_URL\" --status",
-    "db:baseline": "node scripts/migrate.mjs \"$DATABASE_URL\" --baseline",
+    "db:plan": "node scripts/migrate.mjs --plan",
     "push:keys": "node scripts/generate-vapid.mjs",
     "push:test": "node scripts/push-test.mjs",
     "test:e2e": "node scripts/e2e-smoke.mjs",

@@ -101,6 +101,26 @@ if (flags.has('--plan')) {
   process.exit(0);
 }
 
+// Refuse to baseline the whole directory, and refuse before connecting.
+//
+// With no filenames the plan is "every migration in the folder", and baselining
+// that records work nobody has run as DONE — worse than a failed migration,
+// because the ledger then lies and `db:migrate` skips the real thing
+// permanently. Adopting an existing database means naming the files that
+// database actually has, so naming them is required rather than defaulted.
+if (flags.has('--baseline') && fileArgs.length === 0) {
+  console.error(
+    'Refusing to baseline every migration in the directory.\n\n' +
+    `That would record all ${local.length} as applied, including any that have never\n` +
+    'run, and db:migrate would then skip them permanently.\n\n' +
+    'Name the files the database actually has, for example:\n' +
+    '  node scripts/migrate.mjs "$DATABASE_URL" --baseline \\\n' +
+    '    supabase/migrations/0001_schema.sql supabase/migrations/0002_rls.sql ...\n\n' +
+    'Not sure what is in there? Run --status first.'
+  );
+  process.exit(1);
+}
+
 // Checked here rather than at the top so `--plan` works with no credentials at
 // all — it is the one mode that genuinely does not need a database.
 if (!connString) {
