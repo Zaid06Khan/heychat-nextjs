@@ -16,7 +16,7 @@ the four DONE sections below each carry gaps that are still open.
 |---|---|---|---|
 | 1 | **HIGH** | Video calls have never connected | Yes — needs signalling, TURN, an SFU. Use LiveKit or Daily. |
 | 2 | DROPPED | Watch-and-earn | No → `FOLLOWUPS-CLOSED.md` |
-| 3 | DECISION | No end-to-end encryption | Yes — multi-device is now real (§6), so a per-device key design is a prerequisite |
+| 3 | DECISION | No end-to-end encryption | Yes — **plan written**, `docs/E2E-ENCRYPTION.md`. Needs three product answers before any code |
 | 4 | CLOSED | Attachments were public by URL | No → `FOLLOWUPS-CLOSED.md` |
 | 5 | CLOSED | Disappearing-message cleanup | No → `FOLLOWUPS-CLOSED.md` |
 | 6 | CLOSED | Device binding gone; device list replaces it | 0018/0022 applied. Untested: revoking a *second* device |
@@ -66,6 +66,19 @@ add-contact button and "username is available". It is a fill, not a brand colour
 See `src/index.css`.
 
 ## 3. End-to-end encryption — product decision
+
+**There is a plan now: `docs/E2E-ENCRYPTION.md`, written 2026-08-16.** It costs
+this out against the app as it actually stands — which features stop working,
+which decisions are product calls rather than cryptographic ones, and a staged
+path. Read that rather than this section before deciding anything.
+
+The short version of its recommendation: **do it before there are users, or
+decide not to do it.** Every message in the database is plaintext today and
+there is no migration from plaintext history to ciphertext anyone can read, so
+the cost only grows. And the real question is not technical — it is whether
+HeyChat is a product whose point is privacy, or a messenger that happens to be
+self-hosted. Until that is answered, the honest UI claim is the current one:
+"Encrypted in transit."
 
 **Unchanged.** The claim was removed from the UI because message bodies are
 stored as plaintext in `messages.content` and the server can read every one.
