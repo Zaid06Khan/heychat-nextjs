@@ -30,7 +30,7 @@ export default function MessageBubble({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [openUp, setOpenUp] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(null);
   const triggerRef = useRef(null);
 
   const time = new Date(message.created_date || message.sent_at).toLocaleTimeString([], {
@@ -73,7 +73,11 @@ export default function MessageBubble({
       return;
     }
     setShowHistory(true);
-    if (history.length === 0) setHistory(await getEditHistory(message.id));
+    // `null` until the fetch lands, so the panel can tell "still loading" from
+    // "nothing to show". It used to start as [] and render "No earlier version
+    // was recorded" during the round trip — a false statement, and one a test
+    // reading the DOM straight after the click caught every time.
+    if (history === null) setHistory(await getEditHistory(message.id));
   };
 
   /**
@@ -344,7 +348,9 @@ export default function MessageBubble({
                   isOwn ? 'border-primary-foreground/25' : 'border-border'
                 }`}
               >
-                {history.length === 0 ? (
+                {history === null ? (
+                  <p className="italic opacity-70">Loading earlier versions…</p>
+                ) : history.length === 0 ? (
                   <p className="italic opacity-70">No earlier version was recorded.</p>
                 ) : (
                   history.map((h, i) => (

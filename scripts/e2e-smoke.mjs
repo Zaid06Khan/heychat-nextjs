@@ -100,6 +100,23 @@ const migrationApplied = async (filename) => {
   return Boolean(data);
 };
 
+/**
+ * Delete for everyone, whichever way this database supports.
+ *
+ * 0020 revokes UPDATE on `messages` from `authenticated` and routes the write
+ * through delete_message_for_everyone(). Before it, the client did the update
+ * itself. The suite has to work either side of that line, and every call site
+ * here is incidental setup for something else — none of them is testing HOW the
+ * delete happens.
+ */
+const has0020 = await migrationApplied('0020_edit_history.sql');
+const deleteForEveryone = async (client, id) => {
+  if (has0020) return client.rpc('delete_message_for_everyone', { msg_id: id });
+  return client.from('messages')
+    .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
+    .eq('id', id);
+};
+
 const { data: aliceRow } = await admin.from('accounts').select('*').eq('username', alice).single();
 check(aliceRow && !('password_hash' in aliceRow),
   'accounts row has no password_hash column');
@@ -450,15 +467,7 @@ const { data: toDelete } = await A.from('messages')
   .insert({ conversation_id: conv.id, sender_id: aliceId, content: 'delete me', read_by: [aliceId] })
   .select().single();
 
-const has0020 = await migrationApplied('0020_edit_history.sql');
-if (has0020) {
-  await A.rpc('delete_message_for_everyone', { msg_id: toDelete.id });
-} else {
-  // Pre-0020 the client did this itself. Mirrors interactions.js's fallback.
-  await A.from('messages')
-    .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
-    .eq('id', toDelete.id);
-}
+await deleteForEveryone(A, toDelete.id);
 const { data: afterDelete } = await B.from('messages').select('content, deleted_at').eq('id', toDelete.id).single();
 check(!!afterDelete?.deleted_at && afterDelete.content === null,
   'a deleted message keeps no readable body', `content=${JSON.stringify(afterDelete?.content)}`);
@@ -544,9 +553,7 @@ const { data: mediaMsgToDelete } = await A.from('messages')
   })
   .select().single();
 
-await A.from('messages')
-  .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
-  .eq('id', mediaMsgToDelete.id);
+await deleteForEveryone(A, mediaMsgToDelete.id);
 
 // Read through the service role — no client can see this table, which is the point.
 const { data: queuedKey } = await admin
@@ -624,9 +631,7 @@ check(Number(afterRead2?.[0]?.unread || 0) === bobCount - 1,
   `${bobCount} -> ${Number(afterRead2?.[0]?.unread || 0)}`);
 
 // A deleted message must not leave a badge pointing at a tombstone.
-await A.from('messages')
-  .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
-  .eq('id', unreadSeed[1].id);
+await deleteForEveryone(A, unreadSeed[1].id);
 const { data: afterDel } = await B.rpc('unread_counts', { conv_ids: [conv.id] });
 check(Number(afterDel?.[0]?.unread || 0) === bobCount - 2,
   'a deleted message stops being counted',

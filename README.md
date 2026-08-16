@@ -7,8 +7,8 @@ auth you control.
 never worked** and the entry point is hidden, and **there is no end-to-end
 encryption** — message bodies are readable by the server. Push notifications
 *do* work now (§10), and the watch-and-earn feature was **removed** in `0007`
-(§2). Several migrations are written but not yet applied — `npm run db:status`
-is the authority on which.
+(§2). All migrations through `0021` are applied as of 2026-08-16;
+`npm run db:status` is the authority.
 
 ## Setup
 
@@ -35,11 +35,12 @@ supabase/migrations/0012_message_interactions.sql replies, reactions, edit, dele
 supabase/migrations/0013_typing_channels.sql     typing-indicator authorisation
 supabase/migrations/0014_unread_counts.sql       unread counting in Postgres
 supabase/migrations/0015_group_management.sql    add/remove/rename/leave a group
-supabase/migrations/0016_message_hides.sql       "delete for me"          <- pending
-supabase/migrations/0017_reactions_realtime.sql  reactions on the live feed <- pending
-supabase/migrations/0018_device_list.sql         drops device binding       <- pending
-supabase/migrations/0019_group_invites.sql       group invites need consent <- pending
-supabase/migrations/0020_edit_history.sql        edit window + history       <- pending
+supabase/migrations/0016_message_hides.sql       "delete for me"
+supabase/migrations/0017_reactions_realtime.sql  reactions on the live feed
+supabase/migrations/0018_device_list.sql         drops device binding
+supabase/migrations/0019_group_invites.sql       group invites need consent
+supabase/migrations/0020_edit_history.sql        edit window + history
+supabase/migrations/0021_service_role_grants.sql service_role grants 0016/19/20 missed
 ```
 
 > `0005` then `0007` on a fresh database is a build-then-demolish, which looks
@@ -111,7 +112,7 @@ npm run test:e2e -- http://localhost:3000
 ```
 
 Registers three throwaway users, walks register → login → send a message, then
-asserts the boundaries hold, and deletes the users. **87 assertions**, covering:
+asserts the boundaries hold, and deletes the users. **100 assertions**, covering:
 
 - non-participants can't read a conversation, and nobody can send as someone else
 - `account_secrets` is unreachable and a user can't self-promote to admin
@@ -138,7 +139,7 @@ npx playwright install chromium    # once
 npm run test:browser -- http://localhost:3000
 ```
 
-**60 assertions, and it is not the same thing as `test:e2e`.** That suite talks
+**62 assertions, and it is not the same thing as `test:e2e`.** That suite talks
 to Supabase directly and proves the boundaries hold; it never renders a
 component. This drives the real UI in two browser contexts as two real users —
 register, contact request, accept, send, typing indicator, reaction, reply,

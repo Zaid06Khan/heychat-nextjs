@@ -333,8 +333,19 @@ try {
 
     await A.locator('button:has-text("edited")').first().click();
     if (await migrationApplied('0020_edit_history.sql')) {
-      check(await seen(A, 'text=hello from A'),
-        'and clicking it shows what the message used to say');
+      // Scoped to the edited bubble, not the page. The original wording
+      // ("typing a reply") also appears inside the reply that quotes it, so a
+      // bare text match would pass without the history panel existing at all.
+      const editedBubble = A.locator('div.group').filter({ hasText: 'edited message text' }).first();
+      // Wait for the fetch, do not read straight after the click. The panel
+      // renders a loading line first, and reading through it is how this
+      // assertion failed against a database that had the history all along.
+      await editedBubble.locator('text=typing a reply').first()
+        .waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+      const bubbleText = await editedBubble.innerText().catch(() => '');
+      check(bubbleText.includes('typing a reply'),
+        'and clicking it shows what the message used to say',
+        bubbleText.split('\n').join(' | ').slice(0, 100));
     } else {
       // Pre-0020 the edit happened in place and kept nothing, so there is
       // genuinely no history — the panel says so rather than showing an empty

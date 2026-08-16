@@ -99,24 +99,16 @@ export async function editMessage(messageId, content) {
     new_content: content,
   });
 
-  if (!error) return;
-  if (!isMissingFunction(error)) throw new Error(error.message);
-
-  // Pre-0020 fallback. See isMissingFunction below.
-  const { error: fallbackError } = await getSupabaseBrowserClient()
-    .from('messages')
-    .update({ content, edited_at: new Date().toISOString() })
-    .eq('id', messageId);
-
-  if (fallbackError) throw new Error(fallbackError.message);
+  if (error) throw new Error(error.message);
 }
 
 /**
  * Previous versions of a message, oldest first.
  *
  * Readable by anyone who can read the message — the people who saw the original
- * are the people entitled to know it changed. Degrades to empty rather than
- * throwing while 0020 is unapplied.
+ * are the people entitled to know it changed. Returns empty rather than throwing
+ * on error: a message edited before 0020 landed genuinely has no history, and
+ * "no earlier version" is the honest thing to say about it.
  *
  * @returns {Promise<Array<{previous_content: string, edited_at: string}>>}
  */
@@ -150,48 +142,7 @@ export async function deleteMessageForEveryone(messageId) {
     { msg_id: messageId }
   );
 
-  if (!error) return;
-  if (!isMissingFunction(error)) throw new Error(error.message);
-
-  // Pre-0020 fallback. See isMissingFunction below.
-  const { error: fallbackError } = await getSupabaseBrowserClient()
-    .from('messages')
-    .update({
-      deleted_at: new Date().toISOString(),
-      content: null,
-      media_url: null,
-    })
-    .eq('id', messageId);
-
-  if (fallbackError) throw new Error(fallbackError.message);
-}
-
-/**
- * Is this error "that function does not exist"?
- *
- * WHY THERE ARE FALLBACKS ABOVE, and why they are temporary. Every other
- * migration in this repo added something new, so code arriving before its
- * migration meant a feature was merely absent. 0020 is different: it moves two
- * features that already worked — editing and deleting — behind RPCs, and
- * revokes the UPDATE grant that let the client do them directly. Shipping that
- * client against an unmigrated database would break editing and deleting
- * outright, which is a regression rather than a missing feature.
- *
- * So each one tries the function and, only when the function is not there,
- * does exactly what it did before. That is the pre-0020 behaviour reproduced
- * faithfully — no window, no history — which is the honest thing for a database
- * that has no window or history to enforce.
- *
- * The fallbacks are self-limiting: once 0020 runs, the RPC exists so they are
- * never reached, and the same statements would be refused anyway because the
- * grant is gone. **Delete them once 0020 is applied everywhere** — see
- * FOLLOWUPS #11. PostgREST reports a missing function as PGRST202.
- */
-function isMissingFunction(error) {
-  return (
-    error?.code === 'PGRST202' ||
-    /could not find the function/i.test(error?.message || '')
-  );
+  if (error) throw new Error(error.message);
 }
 
 /**

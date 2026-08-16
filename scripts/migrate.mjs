@@ -158,6 +158,12 @@ await client.query(`
     applied_at timestamptz not null default now()
   );
   revoke all on public.schema_migrations from public, anon, authenticated;
+  -- service_role bypasses RLS but NOT grants, and both test suites ask this
+  -- table whether a migration has been applied. Without this they get
+  -- "permission denied", read it as "not applied", and silently skip every
+  -- assertion that was gated on it — a pass that means nothing. Read only:
+  -- writing the ledger belongs to this script, which connects as the owner.
+  grant select on public.schema_migrations to service_role;
 `);
 
 const { rows: appliedRows } = await client.query(
