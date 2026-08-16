@@ -4,6 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { getSession, logout, getCurrentAccount } from '@/lib/heychatAuth';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getMutes } from '@/lib/notifications/mutes';
+import { getConversationHides } from '@/lib/conversations';
 import { setUnreadTotal } from '@/lib/unread';
 import { MessageCircle, Users, User, Plus, Search, BellOff } from 'lucide-react';
 import Avatar from './Avatar';
@@ -103,7 +104,7 @@ export default function ConversationList() {
         ),
       ];
 
-      const [accountsRes, lastMsgRes, unreadRes, mutes] = await Promise.all([
+      const [accountsRes, lastMsgRes, unreadRes, mutes, hides] = await Promise.all([
         otherIds.length
           ? supabase.from('accounts').select('id, username, display_name, avatar, is_online').in('id', otherIds)
           : Promise.resolve({ data: [] }),
@@ -113,6 +114,10 @@ export default function ConversationList() {
         // the browser would mean fetching every message of every conversation.
         supabase.rpc('unread_counts', { conv_ids: convIds }),
         getMutes(convIds),
+        // "Delete chat" (0023). Fetched with the rest rather than filtered in
+        // the conversations query, because that query goes through the shim and
+        // cannot express a NOT EXISTS against another table.
+        getConversationHides(),
       ]);
 
       const accountsById = new Map((accountsRes.data || []).map((a) => [a.id, a]));
@@ -145,23 +150,33 @@ export default function ConversationList() {
         };
       });
 
+      // A deleted chat stays gone until something arrives after the moment it
+      // was deleted — at which point it comes back carrying only that. The RPCs
+      // already exclude older messages, so a hidden conversation with nothing
+      // new has no last message and drops out here.
+      const visible = enriched.filter((conv) => {
+        const hiddenAt = hides.get(conv.id);
+        if (!hiddenAt) return true;
+        return Boolean(conv.lastMsg) && new Date(conv.lastMsg.created_date) > hiddenAt;
+      });
+
       // Sorted by last message, not by conversations.updated_date.
       //
       // The query above orders by updated_date because that is what the shim
       // can express, but nothing bumps a conversation row when a message
       // arrives — so on that ordering a brand-new message did not move its
       // conversation to the top, which is the one thing this list is for.
-      enriched.sort((a, b) => {
+      visible.sort((a, b) => {
         const at = new Date(a.lastMsg?.created_date || a.updated_date).getTime();
         const bt = new Date(b.lastMsg?.created_date || b.updated_date).getTime();
         return bt - at;
       });
 
-      setConversations(enriched);
+      setConversations(visible);
 
       // Publishes to the nav badge. Muted conversations still count — muting
       // silences the notification, it does not mark anything as read.
-      setUnreadTotal(enriched.reduce((sum, c) => sum + c.unread, 0));
+      setUnreadTotal(visible.reduce((sum, c) => sum + c.unread, 0));
     } catch (e) {
       console.error(e);
     } finally {

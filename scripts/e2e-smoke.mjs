@@ -632,6 +632,90 @@ const { data: stillThere } = await admin.from('messages')
 check(!stillThere, 'and the expired row is actually gone',
   stillThere ? 'STILL PRESENT' : '');
 
+console.log('\n--- 11b. DELETE CHAT, AND UNFRIENDING ---');
+if (await migrationApplied('0023_conversation_hides.sql')) {
+  // The policy this closed was the dangerous half. Either party to a direct
+  // chat could DELETE the conversation row, and messages cascade — so one
+  // person could destroy the other's entire history, permanently. There was no
+  // UI for it; adding a "Delete chat" button wired to the obvious thing would
+  // have shipped exactly that.
+  const { data: stillThere, error: destructiveErr } = await B.from('conversations')
+    .delete().eq('id', conv.id).select();
+  check(!!destructiveErr || (stillThere || []).length === 0,
+    'a participant can no longer destroy a direct conversation for both people',
+    destructiveErr?.message || `${stillThere?.length ?? 0} rows deleted`);
+
+  const { data: convStillExists } = await admin.from('conversations')
+    .select('id').eq('id', conv.id).maybeSingle();
+  check(!!convStillExists, 'and the conversation is genuinely still there');
+
+  // Hiding is a moment, not a flag: everything before it stays gone, anything
+  // after is why the chat comes back.
+  const hideLine = new Date().toISOString();
+  const { error: hideErr } = await B.from('conversation_hides')
+    .upsert({ conversation_id: conv.id, account_id: bobId, hidden_at: hideLine });
+  check(!hideErr, 'bob deletes the chat for himself', hideErr?.message || '');
+
+  const { data: bobPreview } = await B.rpc('last_messages_for_conversations', { conv_ids: [conv.id] });
+  check((bobPreview || []).length === 0,
+    'it stops showing a last-message preview for him',
+    `got ${(bobPreview || []).length}`);
+
+  const { data: bobUnread } = await B.rpc('unread_counts', { conv_ids: [conv.id] });
+  check((bobUnread || []).length === 0, 'and stops counting as unread');
+
+  // Alice is unaffected — that is the whole point of it being his view only.
+  const { data: alicePreview } = await A.rpc('last_messages_for_conversations', { conv_ids: [conv.id] });
+  check((alicePreview || []).length === 1,
+    'while alice still sees the conversation and its messages',
+    `got ${(alicePreview || []).length}`);
+
+  // A new message brings it back, carrying only itself.
+  await admin.from('messages').insert({
+    conversation_id: conv.id, sender_id: aliceId, content: 'back from the dead',
+    message_type: 'text', read_by: [aliceId],
+  });
+  const { data: afterNew } = await B.rpc('last_messages_for_conversations', { conv_ids: [conv.id] });
+  check((afterNew || []).length === 1 && afterNew[0].content === 'back from the dead',
+    'a new message brings the chat back, showing only what arrived since',
+    JSON.stringify(afterNew?.[0]?.content));
+
+  // Someone else's hide is not writable.
+  const { error: hideOtherErr } = await B.from('conversation_hides')
+    .insert({ conversation_id: conv.id, account_id: aliceId });
+  check(!!hideOtherErr, 'and nobody can delete a chat on someone else\'s behalf',
+    hideOtherErr?.message || 'NO ERROR');
+} else {
+  console.log('  SKIP  delete chat — 0023_conversation_hides.sql not applied');
+}
+
+// Unfriending needs no migration: RLS already lets either party delete the row.
+const { data: friendship } = await admin.from('contact_requests')
+  .insert({ from_account_id: aliceId, to_account_id: bobId, status: 'accepted' })
+  .select().single();
+check(!!friendship, 'alice and bob are contacts');
+
+const { error: unfriendErr } = await B.from('contact_requests').delete().eq('id', friendship.id);
+check(!unfriendErr, 'bob can unfriend alice from his side', unfriendErr?.message || '');
+
+const { data: gone } = await admin.from('contact_requests').select('id').eq('id', friendship.id);
+check((gone || []).length === 0, 'and the contact link is gone');
+
+// Unfriending must not touch the conversation — the messages are still theirs.
+const { data: convAfterUnfriend } = await admin.from('conversations')
+  .select('id').eq('id', conv.id).maybeSingle();
+check(!!convAfterUnfriend, 'while the conversation they had is left alone');
+
+// And a stranger cannot sever someone else's friendship.
+const { data: pair } = await admin.from('contact_requests')
+  .insert({ from_account_id: aliceId, to_account_id: carolId(), status: 'accepted' })
+  .select().single();
+await B.from('contact_requests').delete().eq('id', pair.id);
+const { data: survived } = await admin.from('contact_requests').select('id').eq('id', pair.id);
+check((survived || []).length === 1,
+  'but cannot unfriend two other people from each other');
+await admin.from('contact_requests').delete().eq('id', pair.id);
+
 console.log('\n--- 12. UNREAD COUNTS ---');
 // Alice's count BEFORE she sends anything, because it is not zero and should
 // not be: section 10 had bob send "sent a while ago", which she never read.

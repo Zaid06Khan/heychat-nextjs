@@ -29,7 +29,7 @@ The three that shape most decisions:
 npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
-npm run test:e2e -- http://localhost:3000       # 104 assertions, backend boundaries
+npm run test:e2e -- http://localhost:3000       # 117 assertions, backend boundaries
 npm run test:browser -- http://localhost:3000   # 62 assertions, real UI, 2 contexts
 npm run db:plan        # migrations in order — needs no database
 npm run db:status      # what is applied, what is pending
@@ -74,7 +74,7 @@ src/components/heychat/   the original components
 src/api/base44Client.js   compatibility shim  ─┐  scaffolding, being retired (§8)
 src/lib/shim/             Supabase behind it  ─┘
 src/lib/supabase/         browser / route-handler / service-role clients
-supabase/migrations/      the database, 0001–0022
+supabase/migrations/      the database, 0001–0023
 ```
 
 ### Three Supabase clients, on purpose
@@ -119,6 +119,9 @@ These each exist because of a specific bug or a specific attack. Changing them n
   write `content` itself.
 - **Joining a group requires accepting an invitation** (0019), and an invite from someone
   you have blocked is refused. `group_add_member` no longer exists.
+- **Nobody can delete a direct conversation.** Both parties have a copy and neither owns
+  it. "Delete chat" writes a `conversation_hides` row with a timestamp; 0023 removed the
+  policy that let either party cascade-delete every message for both people.
 - **Every new table must `grant ... to service_role` explicitly.** It bypasses RLS but not
   grants. Three migrations in a row forgot this; the one that mattered made both suites
   read "migration not applied" and silently skip their assertions.

@@ -265,6 +265,20 @@ from `TABLES` once nothing imports it.
 
 **Still open:**
 
+- **Deleting a chat and unfriending — added 2026-08-16.** "Delete chat" hides a
+  conversation for you (`0023_conversation_hides.sql`), recording *when* rather
+  than a flag, so the thread you deleted stays deleted and a later message
+  brings the chat back carrying only what arrived since. Unfriending removes the
+  accepted `contact_requests` row in either direction; it does not delete the
+  conversation and does not block, both of which are separate controls.
+
+  **0023 also closed a loaded gun.** `conversations_delete_owner` from 0002 let
+  EITHER party to a direct chat DELETE the conversation row, and
+  `messages.conversation_id` cascades — so one person could destroy the other's
+  entire history, permanently, with nothing to recover from. No screen offered
+  it, which is the only reason it had never happened; wiring a "Delete chat"
+  button to the obvious thing would have shipped exactly that. The direct clause
+  is gone, so a direct conversation is now deleted by nobody.
 - **`conversations.participant_ids` is an array with no foreign key**, so a
   conversation does not cascade when its members are deleted. Deleting an
   account leaves its conversations behind pointing at ids that no longer exist,

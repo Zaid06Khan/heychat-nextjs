@@ -2,18 +2,20 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getSession } from '@/lib/heychatAuth';
-import { Users, Check, X, UsersRound } from 'lucide-react';
+import { Users, Check, X, UsersRound, UserMinus } from 'lucide-react';
 import Avatar from '@/components/heychat/Avatar';
 import ContactSearch from '@/components/heychat/ContactSearch';
 import GroupCreateDialog from '@/components/heychat/GroupCreateDialog';
 import DiscoverSuggestions from '@/components/heychat/DiscoverSuggestions';
 import { myGroupInvites, respondToInvite } from '@/lib/groups';
+import { removeContact } from '@/lib/conversations';
 
 export default function Contacts() {
   const [tab, setTab] = useState('contacts');
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
   const [groupInvites, setGroupInvites] = useState([]);
+  const [confirmRemove, setConfirmRemove] = useState(null);
   const [showGroup, setShowGroup] = useState(false);
   const session = getSession();
   const navigate = useNavigate();
@@ -120,14 +122,29 @@ export default function Contacts() {
             {contacts.length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-8">No contacts yet. Search above to add some!</p>
             ) : (
+              // A div wrapping two buttons, not one button containing another —
+              // nested interactive elements are invalid and the inner one stops
+              // being reachable by keyboard.
               contacts.map((c) => (
-                <button key={c.id} onClick={() => startChat(c.id)} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-secondary/50 transition text-left">
-                  <Avatar src={c.avatar} name={c.display_name || c.username} size={44} online={c.is_online} />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground text-sm truncate">{c.display_name || c.username}</p>
-                    <p className="text-xs text-muted-foreground truncate">@{c.username}</p>
-                  </div>
-                </button>
+                <div key={c.id} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-secondary/50 transition">
+                  <button
+                    onClick={() => startChat(c.id)}
+                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                  >
+                    <Avatar src={c.avatar} name={c.display_name || c.username} size={44} online={c.is_online} />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground text-sm truncate">{c.display_name || c.username}</p>
+                      <p className="text-xs text-muted-foreground truncate">@{c.username}</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setConfirmRemove(c)}
+                    aria-label={`Remove ${c.display_name || c.username} from contacts`}
+                    className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-secondary transition"
+                  >
+                    <UserMinus className="w-4 h-4" />
+                  </button>
+                </div>
               ))
             )}
           </div>
@@ -196,6 +213,46 @@ export default function Contacts() {
           <DiscoverSuggestions />
         )}
       </div>
+      {confirmRemove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-foreground/40">
+          <div className="w-full max-w-sm bg-card border-2 border-foreground rounded-2xl shadow-pop p-5">
+            <h2 className="text-lg font-display font-extrabold text-foreground">
+              Remove {confirmRemove.display_name || confirmRemove.username}?
+            </h2>
+            {/* Says what it does NOT do, because "remove" invites people to
+                assume it blocks and deletes, and it does neither. */}
+            <p className="text-sm text-muted-foreground mt-2">
+              They come off your contacts list. Your conversation and its
+              messages stay where they are, and they are not blocked — they can
+              send you a new contact request.
+            </p>
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setConfirmRemove(null)}
+                className="flex-1 py-2.5 rounded-xl border-2 border-foreground bg-card font-bold text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const who = confirmRemove;
+                  setConfirmRemove(null);
+                  try {
+                    await removeContact(session.id, who.id);
+                  } catch (e) {
+                    console.error(e);
+                  }
+                  loadData();
+                }}
+                className="flex-1 py-2.5 rounded-xl border-2 border-foreground bg-destructive text-destructive-foreground font-bold text-sm"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <GroupCreateDialog open={showGroup} onClose={() => setShowGroup(false)} onCreated={(conv) => navigate(`/chat/${conv.id}`)} />
     </div>
   );

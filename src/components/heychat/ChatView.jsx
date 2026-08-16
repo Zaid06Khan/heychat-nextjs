@@ -14,9 +14,10 @@ import {
   getMessagesByIds,
 } from '@/lib/messages/interactions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { hideConversation, getConversationHides } from '@/lib/conversations';
 import { createTypingChannel } from '@/lib/messages/typing';
 import { markRead } from '@/lib/unread';
-import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle, Trash2 } from 'lucide-react';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
@@ -47,6 +48,7 @@ export default function ChatView() {
   const [editing, setEditing] = useState(null);
   const [typingNames, setTypingNames] = useState([]);
   const [sendError, setSendError] = useState(null);
+  const [confirmDeleteChat, setConfirmDeleteChat] = useState(false);
   // Originals quoted by a reply but not themselves in the loaded 200.
   const [quotedById, setQuotedById] = useState(new Map());
   const [highlightId, setHighlightId] = useState(null);
@@ -159,7 +161,14 @@ export default function ChatView() {
       // five minutes (0010), so a row can outlive its expiry by a few minutes —
       // hiding it locally keeps "disappearing" honest on screen in the gap.
       const now = new Date();
-      const unexpired = msgs.filter((m) => !m.expiry_at || new Date(m.expiry_at) > now);
+      let unexpired = msgs.filter((m) => !m.expiry_at || new Date(m.expiry_at) > now);
+
+      // "Delete chat" (0023) is a moment, not a flag: anything from before you
+      // deleted the chat stays deleted, and anything sent since is why the
+      // conversation is back on your list at all. Same rule the sidebar preview
+      // and the unread count apply server-side.
+      const hiddenAt = (await getConversationHides()).get(conversationId);
+      if (hiddenAt) unexpired = unexpired.filter((m) => new Date(m.created_date) > hiddenAt);
 
       // "Delete for me" (0016). Filtered here rather than in the query because
       // the messages come through the shim, which has no way to express a
@@ -435,6 +444,13 @@ export default function ChatView() {
         <button onClick={() => setShowReport(true)} className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
           <Flag className="w-5 h-5" />
         </button>
+        <button
+          onClick={() => setConfirmDeleteChat(true)}
+          aria-label="Delete this chat"
+          className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-secondary transition"
+        >
+          <Trash2 className="w-5 h-5" />
+        </button>
         <div className="relative">
           <button
             onClick={() => setShowMute(!showMute)}
@@ -610,6 +626,50 @@ export default function ChatView() {
         onCancelEdit={() => setEditing(null)}
         onTyping={() => typingRef.current?.notifyTyping()}
       />
+      {confirmDeleteChat && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-foreground/40">
+          <div className="w-full max-w-sm bg-card border-2 border-foreground rounded-2xl shadow-pop p-5">
+            <h2 className="text-lg font-display font-extrabold text-foreground">
+              Delete this chat?
+            </h2>
+            <p className="text-sm text-muted-foreground mt-2">
+              It disappears from your list and you stop seeing these messages.
+              {otherUser ? ` ${otherUser.display_name || otherUser.username} keeps their copy` : ' Everyone else keeps their copy'} —
+              this only clears yours. If they message you again the chat comes
+              back, with the new messages only.
+            </p>
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setConfirmDeleteChat(false)}
+                className="flex-1 py-2.5 rounded-xl border-2 border-foreground bg-card font-bold text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setConfirmDeleteChat(false);
+                  try {
+                    await hideConversation(conversationId, session.id);
+                    navigate('/home');
+                  } catch (e) {
+                    console.error(e);
+                    setSendError({
+                      message: /conversation_hides/i.test(e.message || '')
+                        ? 'Delete chat needs migration 0023.'
+                        : e.message || 'Could not delete that chat.',
+                      payload: null,
+                    });
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-xl border-2 border-foreground bg-destructive text-destructive-foreground font-bold text-sm"
+              >
+                Delete for me
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ReportDialog open={showReport} onClose={() => setShowReport(false)} reportedId={otherUser?.id || ''} reportedName={otherUser?.display_name || otherUser?.username || ''} />
       <GroupInfoDialog
         open={showGroupInfo}
