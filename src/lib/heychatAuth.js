@@ -221,10 +221,32 @@ export async function getCurrentAccount({ force = false } = {}) {
  * a reset path that verifies nothing is worse than no reset path at all.
  *
  * `resetPasswordWithRecovery()` below is now the only way back into an account
- * whose password is lost, which makes setting a recovery password at signup the
- * thing that actually matters. See FOLLOWUPS #6 on the two layers disagreeing
- * about whether it is required.
+ * whose password is lost. That is why /api/auth/register REQUIRES a recovery
+ * password as of 2026-08-16 — the form always did, the route did not, and the
+ * gap only became dangerous once this was the sole remaining route back in.
  */
+
+/**
+ * Does this account have a recovery password set?
+ *
+ * Through an RPC (0022) because `account_secrets` has RLS and zero client
+ * policies — nothing in the browser can read that table, which is the point.
+ * The function returns one boolean about the caller and nothing else.
+ *
+ * Settings used to read `account.recovery_password_hash`, a column that lives on
+ * `account_secrets` and has never existed on `accounts`. It was therefore always
+ * undefined, so the screen told everyone to set a recovery password including
+ * people who already had one.
+ *
+ * Returns false on error: with device binding gone this phrase is the only way
+ * back into an account, so the safe assumption when we cannot tell is the one
+ * that prompts.
+ */
+export async function hasRecoveryPassword() {
+  const { data, error } = await getSupabaseBrowserClient().rpc('have_recovery_password');
+  if (error) return false;
+  return Boolean(data);
+}
 
 export async function resetPasswordWithRecovery({
   username,

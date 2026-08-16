@@ -36,7 +36,9 @@ export async function POST(request) {
   const byUser = check(`login:user:${name}`, 5, 15 * 60 * 1000);
   if (!byUser.ok) return tooManyRequests(byUser.retryAfter);
 
-  const supabase = await getSupabaseRouteClient();
+  // Passing `request` so GoTrue stamps the session with the BROWSER's
+  // user-agent rather than the server's — see getSupabaseRouteClient.
+  const supabase = await getSupabaseRouteClient(request);
 
   const { data: signIn, error: signInError } = await supabase.auth.signInWithPassword({
     email: usernameToEmail(String(username).trim()),

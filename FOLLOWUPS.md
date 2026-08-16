@@ -19,7 +19,7 @@ the four DONE sections below each carry gaps that are still open.
 | 3 | DECISION | No end-to-end encryption | Yes — multi-device is now real (§6), so a per-device key design is a prerequisite |
 | 4 | CLOSED | Attachments were public by URL | No → `FOLLOWUPS-CLOSED.md` |
 | 5 | CLOSED | Disappearing-message cleanup | No → `FOLLOWUPS-CLOSED.md` |
-| 6 | REMOVED | Device binding is gone; device list replaces it | 0018 applied. Open: recovery password required in the form but not the route |
+| 6 | CLOSED | Device binding gone; device list replaces it | 0018/0022 applied. Untested: revoking a *second* device |
 | 7 | LATENT | Username changes would orphan the auth user | Yes — cheap now, expensive later |
 | 8 | OPEN | Retire the shim, one screen at a time | Yes — `ChatView` reads still go through it |
 | 9 | OPEN | Smaller items | Yes — 7 open, incl. two credentials to rotate |
@@ -150,20 +150,38 @@ it expires and nothing can recall it. "Signed out within the hour" is the
 promise, and the UI says so. Anything stronger needs a revocation check on every
 request.
 
-**Still open, and now the only way back into a locked-out account:** the two
-layers disagree about the recovery password. `Register.jsx` marks both fields
-`required`, so the form will not submit without them. `/api/auth/register` does
-not — the e2e suite registers two of its three users with no recovery password
-and gets a 200 each time. That was a gap before; with the device reset path gone
-it is the *whole* recovery story, so it matters more than it did. Decide which
-layer is authoritative and make the other match.
+~~**Still open:** the two layers disagree about the recovery password.~~
+**Closed 2026-08-16.** `/api/auth/register` now requires one, so the route is
+authoritative and the form merely agrees with it. Absent and too-short get
+different messages, because "must be at least 8 characters" reads as a
+formatting complaint to someone who sent nothing.
+
+Two things fell out of closing it. `Settings.jsx` was reading
+`account.recovery_password_hash` — a column that lives on `account_secrets` and
+has **never** existed on `accounts` — so it was always `undefined` and the screen
+told everyone to set a recovery password, including people who had one.
+`0022_recovery_password_status.sql` adds `have_recovery_password()`, one boolean
+about the caller, leaving `account_secrets` as unreadable as it was. And an
+account that genuinely has none now gets a warning saying so in as many words:
+without one, a forgotten password means the account is gone.
+
+Five accounts predate the requirement; all five are test accounts (`testbuddy`
+and four stray `dbg*` leftovers from 2026-08-11). No real user was stranded.
 
 **Applied 2026-08-16.** The defensive `to_jsonb(s) ->> '...'` reads turned out
 to be unnecessary here — this project's `auth.sessions` has `user_agent`, `ip`
 and `refreshed_at` — but they cost nothing and keep the migration installable
 against an older GoTrue.
 
-**What has NOT been exercised is a second real device.** Every check so far has
+**Sessions record the real browser now**, which they did not at first. GoTrue
+stamps the User-Agent and IP of whoever asks it to create a session, and on a
+sign-in that is this server — so every session was labelled `node` with the
+server's address, and every device in the list looked identical. That is most of
+the feature. `getSupabaseRouteClient(request)` forwards the caller's headers on
+the two routes that sign someone in. Proved by registering with a marker
+user-agent and reading it back off `auth.sessions`.
+
+**What has still NOT been exercised is a second real device.** Every check has
 been one session listing itself, so `is_current` is confirmed and revoking
 someone else's session is not. Sign in on a phone and revoke it from the laptop
 before trusting that half.

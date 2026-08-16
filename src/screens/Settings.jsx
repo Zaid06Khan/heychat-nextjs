@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { getCurrentAccount, logout, deleteAccount } from '@/lib/heychatAuth';
+import { getCurrentAccount, logout, deleteAccount, hasRecoveryPassword } from '@/lib/heychatAuth';
 import { ArrowLeft, Shield, Eye, Users, Trash2, LogOut, Smartphone, AlertTriangle, Globe, KeyRound, MapPin } from 'lucide-react';
 import { LANGUAGES, setLanguage } from '@/lib/i18n';
 import ChangePasswordDialog from '@/components/heychat/ChangePasswordDialog';
@@ -16,12 +16,17 @@ export default function Settings() {
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [hasRecovery, setHasRecovery] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     (async () => {
       const acc = await getCurrentAccount();
       setAccount(acc);
+      // Asked separately because it cannot come from the accounts row — see
+      // hasRecoveryPassword(). `null` until it answers, so the warning below
+      // does not flash for someone who does have one.
+      setHasRecovery(await hasRecoveryPassword());
     })();
   }, []);
 
@@ -145,18 +150,46 @@ export default function Settings() {
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
             <KeyRound className="w-4 h-4" /> Security
           </h2>
+          {hasRecovery === false && (
+            <div className="mb-3 flex items-start gap-3 bg-card border-2 border-destructive rounded-2xl p-4">
+              <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-foreground">
+                  This account has no way back in
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  There is no email on this account, so a recovery password is the
+                  only way to get back in if you forget your password. Without one,
+                  a forgotten password means the account is gone.
+                </p>
+                <button
+                  onClick={() => setShowRecoveryDialog(true)}
+                  className="mt-2.5 text-xs font-bold underline underline-offset-2 text-destructive"
+                >
+                  Set one now
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1 bg-card rounded-2xl border border-border p-2">
             <button onClick={() => setShowPasswordDialog(true)} className="w-full flex items-center justify-between text-left p-3">
               <div>
                 <p className="text-sm font-medium text-foreground">Change password</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Only available on your registered device</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Requires your current password</p>
               </div>
               <ArrowLeft className="w-4 h-4 text-muted-foreground rotate-180" />
             </button>
             <button onClick={() => setShowRecoveryDialog(true)} className="w-full flex items-center justify-between text-left p-3">
               <div>
-                <p className="text-sm font-medium text-foreground">{account.recovery_password_hash ? 'Update recovery password' : 'Set recovery password'}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{account.recovery_password_hash ? 'Change your password recovery key' : 'Required to reset your password if you forget it'}</p>
+                <p className="text-sm font-medium text-foreground">
+                  {hasRecovery ? 'Update recovery password' : 'Set recovery password'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {hasRecovery
+                    ? 'Change your password recovery key'
+                    : 'The only way back in if you forget your password'}
+                </p>
               </div>
               <ArrowLeft className="w-4 h-4 text-muted-foreground rotate-180" />
             </button>
@@ -198,7 +231,14 @@ export default function Settings() {
         </div>
       )}
       <ChangePasswordDialog open={showPasswordDialog} onClose={() => setShowPasswordDialog(false)} />
-      <RecoveryPasswordDialog open={showRecoveryDialog} onClose={() => setShowRecoveryDialog(false)} hasRecoveryPassword={!!account.recovery_password_hash} />
+      <RecoveryPasswordDialog
+        open={showRecoveryDialog}
+        onClose={async () => {
+          setShowRecoveryDialog(false);
+          setHasRecovery(await hasRecoveryPassword());
+        }}
+        hasRecoveryPassword={Boolean(hasRecovery)}
+      />
     </div>
   );
 }

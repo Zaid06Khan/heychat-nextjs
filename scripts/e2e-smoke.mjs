@@ -60,24 +60,48 @@ check(rA.status === 200 && rA.json?.account?.username === alice,
   `register ${alice}`, `status=${rA.status} ${rA.json?.error || ''}`);
 
 const rB = await post('/api/auth/register', {
-  username: bob, password: PW, display_name: 'Bob', device_fingerprint: FP,
+  username: bob, password: PW, display_name: 'Bob',
+  recovery_password: 'bob-recovery-phrase', device_fingerprint: FP,
 });
 check(rB.status === 200, `register ${bob}`, `status=${rB.status} ${rB.json?.error || ''}`);
 
 const rC = await post('/api/auth/register', {
-  username: carol, password: PW, display_name: 'Carol', device_fingerprint: FP,
+  username: carol, password: PW, display_name: 'Carol',
+  recovery_password: 'carol-recovery-phrase', device_fingerprint: FP,
 });
 check(rC.status === 200, `register ${carol}`, `status=${rC.status} ${rC.json?.error || ''}`);
 
 const dup = await post('/api/auth/register', {
-  username: alice, password: PW, device_fingerprint: FP,
+  username: alice, password: PW,
+  recovery_password: 'another-recovery-phrase', device_fingerprint: FP,
 });
 check(dup.status === 409, 'duplicate username rejected', `status=${dup.status}`);
 
 const weak = await post('/api/auth/register', {
-  username: `weak_${stamp}`, password: 'short', device_fingerprint: FP,
+  username: `weak_${stamp}`, password: 'short',
+  recovery_password: 'weak-recovery-phrase', device_fingerprint: FP,
 });
 check(weak.status === 400, 'short password rejected', `status=${weak.status}`);
+
+// REQUIRED as of 2026-08-16, and this suite is why it needed asserting: it used
+// to register two of its three users with no recovery password at all and get a
+// 200 each time, which is exactly the hole. With device binding gone and no
+// email on file, this phrase is the only way back into an account — one created
+// without it is unrecoverable, so the route no longer takes the caller's word
+// for whether they used the form.
+const noRecovery = await post('/api/auth/register', {
+  username: `norec_${stamp}`, password: PW,
+});
+check(noRecovery.status === 400,
+  'registering without a recovery password is refused',
+  `status=${noRecovery.status} ${noRecovery.json?.error || ''}`);
+
+const shortRecovery = await post('/api/auth/register', {
+  username: `shortrec_${stamp}`, password: PW, recovery_password: 'abc',
+});
+check(shortRecovery.status === 400,
+  'and a too-short one is refused with its own message',
+  `status=${shortRecovery.status} ${shortRecovery.json?.error || ''}`);
 
 console.log('\n--- 2. PASSWORD IS NOT IN THE DATABASE ---');
 const admin = createClient(URL, SVC);
@@ -121,6 +145,18 @@ const { data: aliceRow } = await admin.from('accounts').select('*').eq('username
 check(aliceRow && !('password_hash' in aliceRow),
   'accounts row has no password_hash column');
 check(!JSON.stringify(aliceRow).includes(PW), 'plaintext password not stored in accounts');
+
+// 0022: an account can find out whether it has a way back in, without
+// account_secrets ever becoming readable.
+const A0 = await signedInClient(alice);
+const { data: aliceHas, error: haveErr } = await A0.rpc('have_recovery_password');
+check(aliceHas === true, 'an account with a recovery password is told so',
+  haveErr?.message || `got ${JSON.stringify(aliceHas)}`);
+
+const { error: secretsStillShut } = await A0.from('account_secrets').select('*');
+check(!!secretsStillShut,
+  'and account_secrets is still unreadable — only the boolean is exposed',
+  secretsStillShut?.message || 'NO ERROR');
 
 console.log('\n--- 3. LOGIN ---');
 const okLogin = await post('/api/auth/login', { username: alice, password: PW, device_fingerprint: FP });

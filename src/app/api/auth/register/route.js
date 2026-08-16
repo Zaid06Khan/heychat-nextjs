@@ -59,10 +59,29 @@ export async function POST(request) {
   const passwordError = validatePassword(password);
   if (passwordError) return jsonError(passwordError);
 
-  if (recovery_password) {
-    const recoveryError = validatePassword(recovery_password, 'Recovery password');
-    if (recoveryError) return jsonError(recoveryError);
+  // REQUIRED, as of 2026-08-16. It used to be `if (recovery_password)` — the
+  // registration form marked both fields required and the route did not, so the
+  // guarantee was a UI convention and anything posting here directly skipped it.
+  //
+  // That was a loose end while device binding existed, because
+  // /api/auth/device let you reset from the machine you signed up on. Removing
+  // binding (FOLLOWUPS #6) removed that route too, and there is no email on
+  // file. So this phrase is now the ONLY way back into an account whose password
+  // is forgotten, and an account created without one is unrecoverable — not
+  // "hard to recover", gone. That is not a thing to leave to whether the caller
+  // happened to use the form.
+  //
+  // Absent and too-short get different messages. `validatePassword` would
+  // answer "Recovery password must be at least 8 characters" to someone who
+  // sent none at all, which reads as a formatting complaint about something
+  // they never provided.
+  if (!recovery_password) {
+    return jsonError(
+      'A recovery password is required. There is no email on your account, so it is the only way back in if you forget your password.'
+    );
   }
+  const recoveryError = validatePassword(recovery_password, 'Recovery password');
+  if (recoveryError) return jsonError(recoveryError);
 
   const cleanUsername = username.trim();
   const admin = getSupabaseAdminClient();
@@ -114,15 +133,18 @@ export async function POST(request) {
   // removed on 2026-08-16 (FOLLOWUPS #6) and 0018 drops the column; the
   // recovery password is now the only thing this table holds, and the only way
   // back into an account whose password is lost.
+  // No longer conditional: the validation above guarantees a recovery password
+  // reached us, so a null hash here would mean an unrecoverable account created
+  // by a code path that thinks it succeeded.
   await admin.from('account_secrets').insert({
     account_id: userId,
-    recovery_password_hash: recovery_password
-      ? await bcrypt.hash(recovery_password, 12)
-      : null,
+    recovery_password_hash: await bcrypt.hash(recovery_password, 12),
   });
 
   // Sign in immediately so the browser leaves with a real session cookie.
-  const supabase = await getSupabaseRouteClient();
+  // Same as the login route: the sign-in below creates the session, so the
+  // caller's headers have to reach GoTrue or the device list says "node".
+  const supabase = await getSupabaseRouteClient(request);
   const { error: signInError } = await supabase.auth.signInWithPassword({
     email: usernameToEmail(cleanUsername),
     password,

@@ -29,7 +29,7 @@ The three that shape most decisions:
 npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
-npm run test:e2e -- http://localhost:3000       # 100 assertions, backend boundaries
+npm run test:e2e -- http://localhost:3000       # 104 assertions, backend boundaries
 npm run test:browser -- http://localhost:3000   # 62 assertions, real UI, 2 contexts
 npm run db:plan        # migrations in order — needs no database
 npm run db:status      # what is applied, what is pending
@@ -74,7 +74,7 @@ src/components/heychat/   the original components
 src/api/base44Client.js   compatibility shim  ─┐  scaffolding, being retired (§8)
 src/lib/shim/             Supabase behind it  ─┘
 src/lib/supabase/         browser / route-handler / service-role clients
-supabase/migrations/      the database, 0001–0021
+supabase/migrations/      the database, 0001–0022
 ```
 
 ### Three Supabase clients, on purpose
@@ -122,6 +122,12 @@ These each exist because of a specific bug or a specific attack. Changing them n
 - **Every new table must `grant ... to service_role` explicitly.** It bypasses RLS but not
   grants. Three migrations in a row forgot this; the one that mattered made both suites
   read "migration not applied" and silently skip their assertions.
+- **A recovery password is REQUIRED at registration** (route, not just the form). There is
+  no email on an account and device binding is gone, so it is the only way back in — one
+  created without it is unrecoverable.
+- **Routes that sign someone in must pass `request` to `getSupabaseRouteClient`.** GoTrue
+  stamps the session with the User-Agent of whoever asked, which is this server unless the
+  caller's headers are forwarded. Without it every device in the list reads `node`.
 
 ## Testing
 

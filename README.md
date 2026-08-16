@@ -41,6 +41,7 @@ supabase/migrations/0018_device_list.sql         drops device binding
 supabase/migrations/0019_group_invites.sql       group invites need consent
 supabase/migrations/0020_edit_history.sql        edit window + history
 supabase/migrations/0021_service_role_grants.sql service_role grants 0016/19/20 missed
+supabase/migrations/0022_recovery_password_status.sql  "do I have a recovery password?"
 ```
 
 > `0005` then `0007` on a fresh database is a build-then-demolish, which looks
@@ -112,7 +113,7 @@ npm run test:e2e -- http://localhost:3000
 ```
 
 Registers three throwaway users, walks register → login → send a message, then
-asserts the boundaries hold, and deletes the users. **100 assertions**, covering:
+asserts the boundaries hold, and deletes the users. **104 assertions**, covering:
 
 - non-participants can't read a conversation, and nobody can send as someone else
 - `account_secrets` is unreachable and a user can't self-promote to admin
