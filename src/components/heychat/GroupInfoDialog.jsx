@@ -3,7 +3,7 @@ import { X, Crown, UserMinus, UserPlus, LogOut, Pencil, Check, AlertTriangle } f
 import { base44 } from '@/api/base44Client';
 import { getSession } from '@/lib/heychatAuth';
 import Avatar from './Avatar';
-import { addMember, removeMember, leaveGroup, updateGroupDetails } from '@/lib/groups';
+import { inviteMember, removeMember, leaveGroup, updateGroupDetails } from '@/lib/groups';
 
 /**
  * Everything a group could not do until 0015: see who is in it, add and remove
@@ -23,6 +23,10 @@ export default function GroupInfoDialog({ open, onClose, conversation, members, 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  // Invited people do not appear in the member list until they accept (0019),
+  // so without this the row gives no sign anything happened and invites get
+  // sent twice.
+  const [invited, setInvited] = useState(new Set());
 
   const isAdmin = conversation?.admin_id === session?.id;
 
@@ -142,7 +146,7 @@ export default function GroupInfoDialog({ open, onClose, conversation, members, 
           {isAdmin && (
             <div>
               <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-1.5 block">
-                Add someone
+                Invite someone
               </label>
               <div className="flex items-center gap-2 bg-secondary border-2 border-foreground rounded-xl px-3 py-2">
                 <UserPlus className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -157,15 +161,18 @@ export default function GroupInfoDialog({ open, onClose, conversation, members, 
                 <button
                   key={a.id}
                   onClick={() => run(async () => {
-                    await addMember(conversation.id, a.id);
+                    await inviteMember(conversation.id, a.id);
                     setSearch('');
+                    setInvited((prev) => new Set(prev).add(a.id));
                   })}
                   disabled={busy}
                   className="w-full flex items-center gap-2 p-2 mt-1 rounded-xl hover:bg-secondary transition text-left"
                 >
                   <Avatar src={a.avatar} name={a.display_name || a.username} size={28} />
                   <span className="text-sm text-foreground truncate">{a.display_name || a.username}</span>
-                  <span className="text-xs text-muted-foreground ml-auto">Add</span>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {invited.has(a.id) ? 'Invited' : 'Invite'}
+                  </span>
                 </button>
               ))}
             </div>

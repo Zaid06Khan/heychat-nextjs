@@ -27,8 +27,23 @@ const rpc = async (fn, args) => {
   return data;
 };
 
-export const addMember = (conversationId, accountId) =>
-  rpc('group_add_member', { conv_id: conversationId, new_member: accountId });
+/**
+ * Invite, not add.
+ *
+ * Until 0019 the admin put people straight into the group — no accept step, and
+ * the block list was never consulted, so someone you had blocked could still
+ * put you in a room with themselves. `group_add_member` is dropped; this asks,
+ * and `respondToInvite` is how the answer comes back.
+ */
+export const inviteMember = (conversationId, accountId) =>
+  rpc('group_invite_member', { conv_id: conversationId, invitee: accountId });
+
+/** Pending invitations addressed to the signed-in account. */
+export const myGroupInvites = () => rpc('my_group_invites');
+
+/** @param {boolean} accept — declining is recorded, not just dropped. */
+export const respondToInvite = (inviteId, accept) =>
+  rpc('group_invite_respond', { invite_id: inviteId, accept });
 
 export const removeMember = (conversationId, accountId) =>
   rpc('group_remove_member', { conv_id: conversationId, member: accountId });

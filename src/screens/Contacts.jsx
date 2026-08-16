@@ -2,16 +2,18 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getSession } from '@/lib/heychatAuth';
-import { Users, Check, X } from 'lucide-react';
+import { Users, Check, X, UsersRound } from 'lucide-react';
 import Avatar from '@/components/heychat/Avatar';
 import ContactSearch from '@/components/heychat/ContactSearch';
 import GroupCreateDialog from '@/components/heychat/GroupCreateDialog';
 import DiscoverSuggestions from '@/components/heychat/DiscoverSuggestions';
+import { myGroupInvites, respondToInvite } from '@/lib/groups';
 
 export default function Contacts() {
   const [tab, setTab] = useState('contacts');
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [groupInvites, setGroupInvites] = useState([]);
   const [showGroup, setShowGroup] = useState(false);
   const session = getSession();
   const navigate = useNavigate();
@@ -33,6 +35,11 @@ export default function Contacts() {
       pending.map((r) => base44.entities.Account.get(r.from_account_id).catch(() => null))
     );
     setRequests(pending.map((r, i) => ({ ...r, account: pendingAccs[i] })).filter((r) => r.account));
+
+    // Group invitations (0019). Through an RPC because the invitee is not a
+    // member of the conversation yet, so conversations RLS will not show them
+    // its name. Degrades to none rather than throwing while 0019 is unapplied.
+    setGroupInvites(await myGroupInvites().catch(() => []));
   };
 
   useEffect(() => { loadData(); }, []);
@@ -49,6 +56,24 @@ export default function Contacts() {
 
   const declineRequest = async (req) => {
     await base44.entities.ContactRequest.update(req.id, { status: 'declined' });
+    loadData();
+  };
+
+  /**
+   * Accepting is what puts you in the group — the invite alone does not, which
+   * is the whole point of 0019. Declining is recorded rather than dropped, so
+   * an admin re-inviting is a deliberate act and not a silent retry.
+   */
+  const answerInvite = async (invite, accept) => {
+    try {
+      await respondToInvite(invite.id, accept);
+      if (accept) {
+        navigate(`/chat/${invite.conversation_id}`);
+        return;
+      }
+    } catch (e) {
+      console.error(e);
+    }
     loadData();
   };
 
@@ -84,7 +109,7 @@ export default function Contacts() {
             Contacts ({contacts.length})
           </button>
           <button onClick={() => setTab('requests')} className={`flex-1 py-2 rounded-xl text-sm font-medium transition ${tab === 'requests' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>
-            Requests ({requests.length})
+            Requests ({requests.length + groupInvites.length})
           </button>
           <button onClick={() => setTab('discover')} className={`flex-1 py-2 rounded-xl text-sm font-medium transition ${tab === 'discover' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>
             Discover
@@ -108,7 +133,38 @@ export default function Contacts() {
           </div>
         ) : tab === 'requests' ? (
           <div className="space-y-1">
-            {requests.length === 0 ? (
+            {/* Group invitations first: being put in a room with people is a
+                bigger decision than adding one contact. */}
+            {groupInvites.map((g) => (
+              <div key={g.id} className="flex items-center gap-3 p-2 rounded-xl bg-secondary/30">
+                <Avatar src={g.cover_image} name={g.group_name} size={44} isGroup />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-foreground text-sm truncate flex items-center gap-1.5">
+                    <UsersRound className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                    {g.group_name}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {g.inviter_name} invited you
+                  </p>
+                </div>
+                <button
+                  onClick={() => answerInvite(g, true)}
+                  aria-label={`Join ${g.group_name}`}
+                  className="w-9 h-9 rounded-full bg-accent text-accent-foreground border-2 border-foreground shadow-pop-sm flex items-center justify-center hover:-translate-y-0.5 transition"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => answerInvite(g, false)}
+                  aria-label={`Decline the invitation to ${g.group_name}`}
+                  className="w-9 h-9 rounded-full bg-card text-foreground border-2 border-foreground shadow-pop-sm flex items-center justify-center hover:-translate-y-0.5 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+
+            {requests.length === 0 && groupInvites.length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-8">No pending requests</p>
             ) : (
               requests.map((r) => (

@@ -81,6 +81,25 @@ check(weak.status === 400, 'short password rejected', `status=${weak.status}`);
 
 console.log('\n--- 2. PASSWORD IS NOT IN THE DATABASE ---');
 const admin = createClient(URL, SVC);
+
+/**
+ * Has this migration been applied?
+ *
+ * Migrations here are run by hand, so a tree carrying code for a migration
+ * nobody has run yet is a normal state — and assertions about that code would
+ * be permanently red, which trains people to ignore the suite. Asked of the
+ * ledger 0016 introduced; a database with no ledger answers "no", which is
+ * correct.
+ */
+const migrationApplied = async (filename) => {
+  const { data } = await admin
+    .from('schema_migrations')
+    .select('filename')
+    .eq('filename', filename)
+    .maybeSingle();
+  return Boolean(data);
+};
+
 const { data: aliceRow } = await admin.from('accounts').select('*').eq('username', alice).single();
 check(aliceRow && !('password_hash' in aliceRow),
   'accounts row has no password_hash column');
@@ -586,15 +605,59 @@ const { error: timerErr } = await B.from('conversations')
   .update({ disappearing_timer: 60 }).eq('id', group.id);
 check(!timerErr, 'a member can still set the disappearing timer', timerErr?.message || '');
 
-// The sanctioned paths.
-const { error: bobAddErr } = await B.rpc('group_add_member', { conv_id: group.id, new_member: carolId() });
-check(!!bobAddErr, 'a non-admin cannot add through the RPC either', bobAddErr?.message || 'NO ERROR');
+// Since 0019 the admin INVITES and the invitee decides. Gated on the migration
+// actually being applied: without it group_invite_member does not exist and
+// every assertion below would be red on a tree that is simply not migrated yet.
+if (await migrationApplied('0019_group_invites.sql')) {
+  // The sanctioned paths. Since 0019 the admin INVITES and the invitee decides —
+  // group_add_member is dropped, so nobody joins a group without agreeing to.
+  const { error: goneErr } = await A.rpc('group_add_member', { conv_id: group.id, new_member: carolId() });
+  check(!!goneErr, 'group_add_member is gone — nobody is added without being asked',
+    goneErr?.message || 'NO ERROR');
 
-const { error: aliceAddErr } = await A.rpc('group_add_member', { conv_id: group.id, new_member: carolId() });
-check(!aliceAddErr, 'the admin can add a member', aliceAddErr?.message || '');
+  const { error: bobInviteErr } = await B.rpc('group_invite_member', { conv_id: group.id, invitee: carolId() });
+  check(!!bobInviteErr, 'a non-admin cannot invite', bobInviteErr?.message || 'NO ERROR');
 
-const { data: afterAdd } = await A.from('conversations').select('participant_ids').eq('id', group.id).single();
-check((afterAdd?.participant_ids || []).includes(carolId()), 'and carol is now in the group');
+  // Blocking has to stop someone putting you in a room with them, or it does not
+  // mean much. Carol blocks alice, so alice's invite must be refused.
+  await admin.from('accounts').update({ blocked_account_ids: [aliceId] }).eq('id', carolId());
+  const { error: blockedInviteErr } = await A.rpc('group_invite_member', { conv_id: group.id, invitee: carolId() });
+  check(!!blockedInviteErr, 'a blocked admin cannot invite the person who blocked them',
+    blockedInviteErr?.message || 'NO ERROR');
+  await admin.from('accounts').update({ blocked_account_ids: [] }).eq('id', carolId());
+
+  const { data: invite, error: aliceInviteErr } = await A.rpc('group_invite_member', { conv_id: group.id, invitee: carolId() });
+  check(!aliceInviteErr && !!invite, 'the admin can invite', aliceInviteErr?.message || '');
+
+  const { data: beforeAccept } = await A.from('conversations').select('participant_ids').eq('id', group.id).single();
+  check(!(beforeAccept?.participant_ids || []).includes(carolId()),
+    'and an invitation alone does NOT put carol in the group');
+
+  // Bob is not the invitee, so answering on her behalf must fail.
+  const { error: bobAnswerErr } = await B.rpc('group_invite_respond', { invite_id: invite.id, accept: true });
+  check(!!bobAnswerErr, 'someone else cannot answer her invitation', bobAnswerErr?.message || 'NO ERROR');
+
+  const { data: carolInvites } = await C.rpc('my_group_invites');
+  check((carolInvites || []).some((i) => i.id === invite.id),
+    'carol sees the invitation, with the group name she is not yet a member of',
+    `got ${(carolInvites || []).length}`);
+
+  const { error: acceptErr } = await C.rpc('group_invite_respond', { invite_id: invite.id, accept: true });
+  check(!acceptErr, 'carol accepts', acceptErr?.message || '');
+
+  const { data: afterAdd } = await A.from('conversations').select('participant_ids').eq('id', group.id).single();
+  check((afterAdd?.participant_ids || []).includes(carolId()), 'and is now in the group');
+
+  const { error: reAnswerErr } = await C.rpc('group_invite_respond', { invite_id: invite.id, accept: true });
+  check(!!reAnswerErr, 'an answered invitation cannot be answered again',
+    reAnswerErr?.message || 'NO ERROR');
+} else {
+  console.log('  SKIP  group invites — 0019_group_invites.sql not applied');
+  console.log('        run it, then this asserts consent and the block check');
+  // The rest of this section needs carol in the group, so fall back to the
+  // direct add that 0019 removes.
+  await A.rpc('group_add_member', { conv_id: group.id, new_member: carolId() });
+}
 
 const { error: bobRemoveErr } = await B.rpc('group_remove_member', { conv_id: group.id, member: carolId() });
 check(!!bobRemoveErr, 'a non-admin cannot remove anyone', bobRemoveErr?.message || 'NO ERROR');

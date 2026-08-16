@@ -4,10 +4,11 @@ Self-hosted port of the Base44 HeyChat prototype, on a Postgres database and
 auth you control.
 
 **Read `FOLLOWUPS.md` before shipping.** The short version: **video calls have
-never worked** and the entry point is hidden; **there is no end-to-end
-encryption** and message bodies are readable by the server; and **there are no
-push notifications**, so you find out about a message when you next open the
-app. The watch-and-earn feature was **removed** in `0007` — see FOLLOWUPS §2.
+never worked** and the entry point is hidden, and **there is no end-to-end
+encryption** — message bodies are readable by the server. Push notifications
+*do* work now (§10), and the watch-and-earn feature was **removed** in `0007`
+(§2). Several migrations are written but not yet applied — `npm run db:status`
+is the authority on which.
 
 ## Setup
 
@@ -37,6 +38,7 @@ supabase/migrations/0015_group_management.sql    add/remove/rename/leave a group
 supabase/migrations/0016_message_hides.sql       "delete for me"          <- pending
 supabase/migrations/0017_reactions_realtime.sql  reactions on the live feed <- pending
 supabase/migrations/0018_device_list.sql         drops device binding       <- pending
+supabase/migrations/0019_group_invites.sql       group invites need consent <- pending
 ```
 
 > `0005` then `0007` on a fresh database is a build-then-demolish, which looks
@@ -132,7 +134,7 @@ npx playwright install chromium    # once
 npm run test:browser -- http://localhost:3000
 ```
 
-**47 assertions, and it is not the same thing as `test:e2e`.** That suite talks
+**60 assertions, and it is not the same thing as `test:e2e`.** That suite talks
 to Supabase directly and proves the boundaries hold; it never renders a
 component. This drives the real UI in two browser contexts as two real users —
 register, contact request, accept, send, typing indicator, reaction, reply,
