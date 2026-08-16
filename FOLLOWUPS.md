@@ -3,24 +3,30 @@
 Things this codebase knows are wrong or unfinished. Each one is a project in its
 own right.
 
-**Status as of 2026-08-14.** Numbering is kept stable because commit messages
-reference these by number — closed items stay in place rather than being deleted
-and renumbered.
+**Status as of 2026-08-16.** Numbering is kept stable because commit messages
+reference these by number — a closed section keeps its number even after its text
+moves to `FOLLOWUPS-CLOSED.md`.
 
----
+## Index
 
-## Closed since the original port
+**Read one section, not the whole file.** DONE does not mean nothing is left —
+the four DONE sections below each carry gaps that are still open.
 
-- **#2 Earnings could be minted by the user** — closed twice. `0005_earnings.sql`
-  made the amount the database's decision; `0007_drop_earnings.sql` then removed
-  the feature outright, so the question no longer arises. See #2 below.
-- **#4 Attachments were publicly readable by URL** — closed by
-  `0006_private_media.sql` and `/api/media/sign`.
-- **#9 `ReportDialog` wiped the block list** — fixed. It read the list from a
-  session object that never contained it.
-- **#9 No rate limiting on the auth routes** — added, with a caveat below.
-- **The UI** — rebuilt on a real design system ("Bodega"), and fonts now load
-  at all, which they never had.
+| § | Status | What it is | Still open? |
+|---|---|---|---|
+| 1 | **HIGH** | Video calls have never connected | Yes — needs signalling, TURN, an SFU. Use LiveKit or Daily. |
+| 2 | DROPPED | Watch-and-earn | No → `FOLLOWUPS-CLOSED.md` |
+| 3 | DECISION | No end-to-end encryption | Yes — multi-device is now real (§6), so a per-device key design is a prerequisite |
+| 4 | CLOSED | Attachments were public by URL | No → `FOLLOWUPS-CLOSED.md` |
+| 5 | CLOSED | Disappearing-message cleanup | No → `FOLLOWUPS-CLOSED.md` |
+| 6 | REMOVED | Device binding is gone; device list replaces it | 0018 applied. Open: recovery password required in the form but not the route |
+| 7 | LATENT | Username changes would orphan the auth user | Yes — cheap now, expensive later |
+| 8 | OPEN | Retire the shim, one screen at a time | Yes — `ChatView` reads still go through it |
+| 9 | OPEN | Smaller items | Yes — 7 open, incl. two credentials to rotate |
+| 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window |
+| 11 | DONE | Replies, reactions, edit, delete, typing | 0016/0017/0020 applied. Gaps: notification not cleared on delete, read race, no optimistic send |
+| 12 | DONE | Unread counts | Gap: mutes still count (the four-badge double-mount is fixed) |
+| 13 | DONE | Group management | 0019 applied. Gaps: no audit trail, admin is a single point of failure |
 
 ---
 
@@ -50,45 +56,14 @@ Realistically: use LiveKit or Daily rather than building this.
 
 ## 2. Earnings — DROPPED, 2026-08-09
 
-**The watch-and-earn feature is gone.** Not disabled, not parked behind a flag —
-removed, by `0007_drop_earnings.sql` and the commit that accompanies it. The
-`/earn` screen and route, the nav entry, the i18n keys in all ten locales, the
-`Earning` shim entity, and the `earnings` / `earn_rewards` tables, the
-`credit_earning()` and `list_earn_rewards()` functions and both enums are all
-deleted. The e2e suite now asserts the surface is *absent*, so a database that
-never ran `0007` fails loudly instead of quietly keeping it reachable.
+Removed outright by `0007_drop_earnings.sql`. **Full write-up in
+`FOLLOWUPS-CLOSED.md` §2** — the economics, the fraud surface, and why it should
+not come back in this shape.
 
-The decision was taken because none of the three open problems below had an
-answer that survived contact with the numbers.
-
-**The numbers lost money on every ad, everywhere.** Rewarded video pays roughly
-$10–30 per thousand completed views in the US, and often under $2 per thousand
-in South and South-East Asia — so between about two cents and a twentieth of a
-penny per view. The app paid **$0.05 per ad** and **$1.00 per game play**. Even
-in the best market that is a loss on every impression; in the worst, ~50×.
-
-**Nothing proved the activity happened.** `credit_earning()` could be called in
-a loop. The real fix is signed server-to-server callbacks from the ad network
-(AdMob SSV, ironSource, AppLovin) with signature verification and a replay-proof
-nonce — an integration, not a migration.
-
-**Fraud, structurally.** Accounts are free, instant and anonymous, and the app
-paid money. That is exactly the shape of bulk-account fraud, which ad networks
-ban for rather than merely withhold payment on — and fixing it means identity
-checks that contradict the no-signup privacy pitch the product is built on.
-
-Also unresolved when it was cut: no payout mechanism was ever implemented, a $10
-minimum most users could never reach, and the regulatory weight of paying
-strangers real money (KYC, tax reporting, money-transmission rules).
-
-**If money ever comes back, it should not come back as this.** Charging for
-something (storage, larger groups) is a different problem with none of the fraud
-surface. The dropped code is in git history — `git show 371652e:src/screens/Earn.jsx`
-— if it is ever wanted back.
-
-**One thing survives the removal, deliberately:** citrus (`--accent`) is still
-in the palette. It was introduced for Earn but is now carrying the online dot,
-the add-contact button and "username is available". See `src/index.css`.
+One live detail stays here: **citrus (`--accent`) survives in the palette,
+deliberately.** It was introduced for Earn and now carries the online dot, the
+add-contact button and "username is available". It is a fill, not a brand colour.
+See `src/index.css`.
 
 ## 3. End-to-end encryption — product decision
 
@@ -108,95 +83,90 @@ If you want it for real:
   - Disappearing messages must be enforced on-device.
   - Push notification previews can no longer be generated server-side.
 
-This conflicts with #6 (device binding) and with the recovery-password design.
-Decide the identity model first.
+#6 used to make this moot — one account was one device, so there was nothing to
+design. Binding is gone as of 2026-08-16, so multi-device is real and a per-device
+key design is now a **prerequisite** rather than a complication. The
+recovery-password question is still open and still interacts: a recovery flow that
+restores access cannot restore keys it never had.
 
 ## 4. Attachments — CLOSED
 
-`0006_private_media.sql` made the `media` bucket private and dropped the public
-read policy without replacing it. There is deliberately **no** SELECT policy: an
-"any signed-in user may read" rule would still let any account fetch any
-conversation's attachments by key.
+The `media` bucket is private; reads go through `POST /api/media/sign`, which
+signs against the caller's own session so `messages` RLS decides entitlement.
+**Full write-up in `FOLLOWUPS-CLOSED.md` §4**, including why there is deliberately
+no SELECT policy.
 
-Reads go through `POST /api/media/sign`, which mints a one-hour signed URL. For
-an attachment it reads the message through the *caller's own session*, so the
-existing RLS on `messages` decides who is entitled — reusing a boundary that is
-already tested rather than writing a second one that can drift. For avatars and
-group covers it will only sign a key that is genuinely referenced as one, which
-stops the endpoint becoming a universal key-signing oracle.
-
-`media_url` now holds a storage key. Pre-0006 rows hold an absolute public URL;
-`toStorageKey()` normalises both, and the e2e suite covers that path.
-
-Remaining minor: signed URLs last an hour, so a tab left open for longer will
-need a refresh to re-fetch. The client cache already refreshes five minutes
-early; a tab open for days is the untested case.
+Remaining minor: signed URLs last an hour, so a tab open longer needs a refresh.
+The client cache refreshes five minutes early; a tab open for days is untested.
 
 ## 5. Disappearing-message cleanup — CLOSED, 2026-08-09
 
-`0010_expiry_sweep.sql`. `delete_expired_messages()` is a `SECURITY DEFINER`
-sweep on a five-minute `pg_cron` schedule, and the client call is gone.
+`0010_expiry_sweep.sql`. A `SECURITY DEFINER` sweep on a five-minute `pg_cron`
+schedule, plus `/api/cron/sweep-media` to drain the storage queue. **Full write-up
+in `FOLLOWUPS-CLOSED.md` §5**, including why Postgres can't delete storage objects
+itself.
 
-The orphaned-storage half needed a second mechanism. Postgres cannot delete a
-storage object — that needs the Storage API, reachable from the database only
-with pg_net and a service-role key stored in it, which is a worse thing to own
-than the problem. So the sweep queues keys in `expired_media` and
-`/api/cron/sweep-media` drains the queue with the service role. Point a
-scheduler at it; without `CRON_SECRET` set it refuses every request.
+Two things that still bite: a row can outlive its expiry by up to five minutes,
+so the client filters on render and the conversation-list RPC excludes expired
+rows. And where pg_cron is unavailable the function exists but needs driving from
+outside.
 
-Two things to know. A row can outlive its expiry by up to five minutes, so the
-client still filters on render and the conversation-list RPC excludes expired
-rows — otherwise a message that has visibly disappeared from a thread lingers as
-the sidebar preview. And the migration degrades rather than fails where pg_cron
-is unavailable: the function still exists, it just needs driving from outside.
+## 6. Device binding — REMOVED, 2026-08-16
 
-## 6. Device binding is a fingerprint — and it makes multi-device IMPOSSIBLE
+**Decided and done.** Accounts are no longer bound to a browser fingerprint.
+`generateDeviceFingerprint()`, the check in `/api/auth/login`, the
+`device_fingerprint_hash` column and the whole `/api/auth/device` route are
+deleted; `0018_device_list.sql` drops the column and adds the replacement.
 
-**Sharpened 2026-08-10, after the mobile test pass demonstrated it.** This entry
-used to say binding was fragile and broke for innocent reasons. That undersells
-it. `generateDeviceFingerprint()` hashes `navigator.userAgent`,
-`screen.width×height×colorDepth`, timezone, language, `navigator.platform`,
-timezone offset, a canvas render, and `hardwareConcurrency`. Between a laptop
-and a phone, **at least four of those differ**. Not "might drift" — differ,
-always.
+**What was wrong with it.** The fingerprint hashed user-agent, screen
+dimensions, timezone, language, platform, a canvas render and
+`hardwareConcurrency`. Between a laptop and a phone at least four of those
+differ — not "might drift", differ, always. So one account was one device,
+permanently, by construction, in a messenger, undocumented anywhere a user
+would see it. It also locked people out for a browser update, a GPU driver
+update or a new monitor, with the recovery password as the only way back and no
+email to fall back on. What it bought in exchange was small: the value was
+computed by the client and sent in the request, so it was a weak shared secret
+whose only protection was that the stored copy sat in a table clients cannot
+read.
 
-So an account registered on a laptop can never be used on a phone, and vice
-versa. One account is one device, permanently, by construction. This was not a
-theory: adding phone-width coverage to `test:browser` required registering a
-*separate account* for the phone context, because signing the desktop one in was
-correctly refused.
+**The proof it is gone is in the browser suite.** The phone-width pass used to
+register its own account *because binding refused the desktop one* — that was
+the sharpest evidence this entry ever had. It now signs in as the account
+registered at 1280px and asserts it lands on `/home`.
 
-For a messaging app in 2026 that is a product-defining constraint, and it is
-currently undocumented anywhere a user would see it. It also interacts badly
-with #3 (E2E encryption needs a real multi-device design) and with push, where
-"per device" notification settings imply multiple devices are expected.
+**The replacement is a device list**, in Settings: real GoTrue sessions from
+`auth.sessions`, read through `list_my_devices()` and ended through
+`revoke_my_device()` — both `SECURITY DEFINER`, both filtered to `auth.uid()`,
+because `auth.sessions` holds every user's sessions and must not become readable
+by clients. Not a devices table of our own: that would describe sessions rather
+than be them, and revoking a row in it would revoke nothing, since the browser
+talks to PostgREST directly and a session is only dead when GoTrue says so.
 
-The original entry, still accurate on everything else:
+**Revoking is honest about its limits.** Deleting the session kills its refresh
+token, so that device cannot mint a new access token — but the access token
+already in its hands stays valid until it expires, because a JWT is valid until
+it expires and nothing can recall it. "Signed out within the hour" is the
+promise, and the UI says so. Anything stronger needs a revocation check on every
+request.
 
-Accounts are bound to a browser fingerprint (user-agent, screen size, canvas
-render, timezone). The check is server-side, so the browser cannot skip it — but
-be honest about what it is:
+**Still open, and now the only way back into a locked-out account:** the two
+layers disagree about the recovery password. `Register.jsx` marks both fields
+`required`, so the form will not submit without them. `/api/auth/register` does
+not — the e2e suite registers two of its three users with no recovery password
+and gets a 200 each time. That was a gap before; with the device reset path gone
+it is the *whole* recovery story, so it matters more than it did. Decide which
+layer is authoritative and make the other match.
 
-- It is **client-supplied data**. Its only protection is that the stored value
-  lives in `account_secrets`, which no client can read.
-- It **breaks for innocent reasons**. A browser update changes the user-agent. A
-  GPU driver update changes the canvas hash. An external monitor changes screen
-  dimensions. Each one permanently locks the user out.
-- With no email on file, the recovery password is the *only* way back in. A user
-  who never set one and whose fingerprint drifts has lost the account forever.
+**Applied 2026-08-16.** The defensive `to_jsonb(s) ->> '...'` reads turned out
+to be unnecessary here — this project's `auth.sessions` has `user_agent`, `ip`
+and `refreshed_at` — but they cost nothing and keep the migration installable
+against an older GoTrue.
 
-Options: drop binding in favour of ordinary sessions with a device list the user
-can review; or keep it but require a recovery password at signup and allow
-re-binding after recovery.
-
-**On "require a recovery password at signup" — the two layers disagree, which
-this entry previously got wrong by calling it simply "optional".**
-`Register.jsx` marks both recovery fields `required`, so the form will not
-submit without them. `/api/auth/register` does not: the e2e suite registers two
-of its three users with no recovery password at all and gets a 200 each time.
-So the guarantee is a UI convention, and anything posting to the route directly
-bypasses it. Decide which layer is supposed to be authoritative and make the
-other match.
+**What has NOT been exercised is a second real device.** Every check so far has
+been one session listing itself, so `is_current` is confirmed and revoking
+someone else's session is not. Sign in on a phone and revoke it from the laptop
+before trusting that half.
 
 ## 7. Username changes would orphan the auth user — LATENT
 
@@ -286,12 +256,17 @@ from `TABLES` once nothing imports it.
   proper foreign keys, or a periodic sweep for rows whose participants have all
   gone. The join table would also make membership checks indexable instead of
   scanning an array.
-- **`ConversationList` is mounted twice on `/home`** — once in `AppLayout`'s
-  sidebar (`hidden md:flex`) and once inside `Home` (`md:hidden`). CSS decides
-  which one you see; both fetch, and both open a realtime channel. So the
-  work #8 did to get the list down to one channel and four queries is halved by
-  a layout duplicate. `BottomNav` is mounted twice for the same reason. Fixing
-  it means rendering the list once and positioning it responsively.
+- ~~`ConversationList` is mounted twice on `/home`.~~ **Fixed 2026-08-14.** It
+  was in `AppLayout`'s sidebar (`hidden md:flex`) and again inside `Home`
+  (`md:hidden`), with CSS picking — but React mounts what CSS hides, so both
+  fetched and both opened a realtime channel, halving the work #8 did to get the
+  list down to one channel and four queries. `BottomNav` was doubled the same
+  way. `AppLayout` now renders one of each and only their *position* is
+  responsive; `Home` is just the desktop placeholder. The browser suite counts
+  DOM nodes (not `:visible`) at both widths, which is the assertion that was
+  impossible to write before. One side effect worth having: off `/home` on a
+  phone the list is hidden rather than unmounted, so switching tabs no longer
+  tears down its channel and refetches on the way back.
 
 - **`accounts` is readable by every signed-in user.** Required for contact
   search and group member lists, and it holds no credentials — but it exposes
@@ -309,17 +284,39 @@ from `TABLES` once nothing imports it.
   and `public/sw.js` is a real service worker, but it deliberately does not
   cache anything: a bad cache strategy serves users a stale build for weeks, and
   offline was never the point. Adding one is a separate, reversible decision.
-- **No migration tracking.** Six SQL files, applied by hand, with no table
-  recording what has run — and they are *not* idempotent, so re-running from
-  `0001` fails on an existing database. Fix this before the list gets longer.
-- **Dead code from Base44.** `src/components/AuthLayout.jsx`, `GoogleIcon.jsx`
-  and `ProtectedRoute.jsx` have zero references.
-- **`src/components/ui/image.jsx` phones home.** It carries Wix/Base44 CDN
-  transform logic that no longer applies, and falls back to a hardcoded
-  `static.wixstatic.com` image on error — so a broken image makes a request to a
-  third party. Worth stripping for privacy reasons alone.
-- **`/design-preview` is still in the tree.** A throwaway route comparing the
-  three candidate visual directions. Delete it once it has served its purpose.
+- ~~No migration tracking.~~ **Added 2026-08-14**, once the list got longer
+  (0016) exactly as this entry warned. `public.schema_migrations` records
+  filename, checksum and date; each file runs in one transaction that also
+  writes its ledger row, so there is no half-applied-but-recorded state. The
+  hand-kept file list in `package.json` is gone too — the script reads the
+  directory in filename order, which is what made adding 0016 a manual edit.
+  `--plan` answers "what would run" with no database at all, `--status` shows
+  applied vs pending, and an applied file that has since been edited is reported
+  as drift rather than silently re-run.
+
+  **The live project still needs adopting once** with `--baseline`, which
+  records 0001–0015 as applied without executing them — they are not idempotent,
+  so a first ordinary run would fail on `0001`. That is the one operation that
+  can lie about reality, so it is explicit and prints every row it writes.
+- ~~Dead code from Base44.~~ **Deleted 2026-08-16.** `AuthLayout.jsx`,
+  `GoogleIcon.jsx` and `ProtectedRoute.jsx`, plus `src/hooks/use-size.jsx` which
+  was orphaned by the image rewrite below.
+- ~~`src/components/ui/image.jsx` phones home.~~ **Fixed 2026-08-16**, by
+  deleting almost all of it. 244 lines of Wix Media Platform transform
+  machinery — `/v1/fill/w_,h_,enc_webp/` URL building, a blurred 20px
+  placeholder, a container-measuring hook, a DPR srcset — **none of which had
+  run since 0006**. Media moved to a private Supabase bucket fetched by signed
+  URL, so the Wix host check returned null for every image the app renders and
+  both call sites had been falling through to a bare `<img>` for months.
+
+  The one live part was the worst part: `onError` swapped in a hardcoded
+  `static.wixstatic.com` image, so a broken attachment in a privacy-first
+  messenger announced itself to a third-party CDN. It is a plain `<img>` now
+  with an inert placeholder on failure, and the prop surface is unchanged so
+  neither call site moved. Verified in a browser with a real uploaded
+  attachment: it decodes, and **zero requests to wixstatic/base44**.
+- ~~`/design-preview` is still in the tree.~~ **Deleted 2026-08-16.** The mocks
+  are in git history, which is where `src/index.css` already points.
 - **Contacts and Profile still use stock form controls.** The design system
   reached the branded surfaces; plain inputs, selects and tabs were not part of
   that pass.
@@ -335,21 +332,8 @@ from `TABLES` once nothing imports it.
   database password have both been pasted into chat transcripts. The key
   bypasses all RLS.
 
-**Historical, for context:**
-
-- `src/pages/ResetPassword.jsx` was deleted — it called
-  `base44.auth.resetPassword` with an emailed reset token, which never applied
-  to an app without email addresses.
-- `src/components/ui/calendar.jsx` and `chart.jsx` were deleted — unreferenced
-  shadcn boilerplate whose dependencies (`react-day-picker@8`, `recharts@2`)
-  don't support React 19.
-- Request duplication: a browser pass measured 10 Supabase requests to render
-  `/home` with one conversation, brought to 7 by memoizing `getCurrentAccount()`.
-  The rest is React StrictMode double-invoking effects in dev, plus
-  `ConversationList`'s two realtime subscriptions and its N+1 "last message per
-  conversation" loop. Fixing properly means moving these reads into TanStack
-  Query (already a dependency) — part of retiring the shim (#8). Note media now
-  adds one signing request per distinct attachment, cached per key.
+**Historical, for context:** deleted files and the request-duplication
+measurements have moved to `FOLLOWUPS-CLOSED.md`.
 
 ## 10. Push notifications — DONE; the delivery gap closed 2026-08-14
 
@@ -410,21 +394,97 @@ shipped as "deleted" is how people get hurt.
 authorised by RLS on `realtime.messages` using the same `is_conversation_member()`
 as everything else.
 
+**Delete for me — added 2026-08-14, live 2026-08-16.** There was only ever
+"delete for everyone", so the only way to get a message out of your own view was
+to take it out of everyone's. `0016_message_hides.sql` adds a `message_hides`
+table: your own row, ordinary RLS on `account_id = auth.uid()`, and the message
+itself untouched. It is a table rather than a `hidden_by` array on `messages`
+for the same reason `read_by` needed `mark_message_read()` — a recipient writing
+to someone else's message row would mean widening `messages_update_sender`,
+which is the shape of hole 0015 spent a migration closing on `conversations`.
+
+Both list RPCs (`last_messages_for_conversations`, `unread_counts`) were
+replaced to exclude hidden rows, or a message you had removed from your own view
+would keep announcing itself from the sidebar preview and the unread badge.
+
+**Be precise about what it is: a view preference, not a deletion.** The body
+still exists and the server can still read it. "Delete for everyone" remains the
+only one that destroys anything, which is why the two are named differently and
+only the destructive one is drawn in the alert colour.
+
+**The migration has not been applied** — this tree has no `DATABASE_URL`, so it
+was applied on 2026-08-16 and verified against the live project.
+`getHiddenMessageIds()` still degrades to "nothing hidden" rather than throwing,
+which stays correct for any database carrying the code without the migration.
+
 Known gaps, in rough order of how soon someone will notice:
 
-- **Edit and delete have no time limit and no history.** Every other messenger
-  caps editing at some window; here a two-year-old message can be silently
-  rewritten and only an "edited" marker shows. There is no record of what it
-  said before. For a chat used to agree things, that is a real gap.
-- **Reactions are not in the realtime feed.** They arrive when the thread
-  reloads for some other reason. Adding `message_reactions` to a subscription is
-  small; it just wasn't part of this pass.
+- ~~Edit has no time limit and no history.~~ **Closed 2026-08-16** by
+  `0020_edit_history.sql`. Fifteen minutes from *sending* — not from the last
+  edit, or editing every fourteen minutes keeps the window open forever — and
+  `message_edits` keeps each previous wording, readable by anyone who can read
+  the message. The "edited" marker is a button that shows them.
+
+  **The point of that migration is the GRANT, not the table.** A window enforced
+  inside an RPC is worth nothing while the client can still
+  `update messages set content = ...`, which `messages_update_sender` plus a
+  blanket UPDATE grant allowed — the same shape of hole 0015 closed on
+  `conversations`. `authenticated` now has no UPDATE on `messages` at all; the
+  three legitimate writes each have a `SECURITY DEFINER` function
+  (`mark_message_read` from 0002, `edit_message` and
+  `delete_message_for_everyone` from 0020).
+
+  **Applied 2026-08-16, and the fallbacks are deleted.** This was the first
+  migration to MOVE a working feature rather than add one, so the client briefly
+  shipped with `editMessage` and `deleteMessageForEveryone` falling back to
+  their old direct writes when the function was missing. Both are gone now the
+  functions exist. The e2e suite asserts the part that matters: a direct UPDATE
+  by the author returns `permission denied for table messages`, and an hour-old
+  message is refused with "messages can only be edited for 00:15:00 after
+  sending".
+- ~~Reactions are not in the realtime feed.~~ **Fixed 2026-08-16, and it needed
+  a migration nobody expected.** The client half is a `message_reactions`
+  subscription in `ChatView`. The reason it had never worked is that 0012
+  created the table but never added it to the `supabase_realtime` publication —
+  `0017_reactions_realtime.sql` does that. Worth remembering as a failure mode:
+  subscribing to an *unpublished* table succeeds. The channel joins, no error is
+  raised, and no event ever arrives, so the code reads as correct and does
+  nothing. **Applied 2026-08-16**, and the browser suite now
+  asserts a reaction reaching the other person with no reload.
 - **Deleting a message does not clear the notification** already on someone's
   lock screen. The service worker would need to close notifications by tag.
-- **`quoteFor()` only resolves replies inside the loaded 200 messages.** Reply to
-  something older and it renders "original message unavailable" — technically
-  honest, practically wrong. Needs fetching the quoted rows by id.
-- **The reply quote is not clickable.** It should scroll to the original.
+- **The sender does not see their own message until realtime delivers it.**
+  `ChatView` has no optimistic append: sending posts to `/api/messages`, and the
+  bubble appears only when the subscription fires and triggers a reload. So the
+  composer depends on a websocket for something that needs no server opinion at
+  all — the row is already written and the response carries it.
+
+  Seen rather than theorised: two browser-suite assertions failed on a run where
+  every `POST /api/messages` returned 200, because the UI never rendered what
+  the server had accepted. A clean run passed, so it is churn rather than a
+  hard break — which is exactly what makes it worth writing down. Appending the
+  returned message and letting the realtime reload reconcile would remove the
+  dependency.
+- ~~`quoteFor()` only resolves replies inside the loaded 200 messages.~~
+  **Fixed 2026-08-16.** Quoted rows outside the batch are fetched by id
+  (`getMessagesByIds`), so an old original shows its real preview instead of
+  "original message unavailable" — which is now reserved for the case it was
+  always right about, a deleted or expired original.
+- ~~The reply quote is not clickable.~~ **Fixed 2026-08-16.** It scrolls to the
+  original and flashes it — without the flash you arrive somewhere in the thread
+  with no idea which message you were sent to. Only a quote whose original is
+  actually rendered becomes a button; one resolved by id has nowhere to scroll
+  to, and pretending otherwise would be a dead control.
+- ~~**The thread loaded the OLDEST 200 messages, not the newest.**~~ **Found and
+  fixed 2026-08-16**, while building a 220-message fixture to test the two
+  entries above. `loadMessages()` sorted `created_date` ascending with
+  `limit(200)`, which takes the first 200 rows — so any conversation past that
+  length showed the first 200 messages ever sent, nothing since, and no new
+  arrivals ever. It now takes the newest 200 and reverses them for display.
+
+  This had been true since the port and nothing caught it, because no test
+  conversation had ever exceeded 200 messages. `test:browser` now builds a
+  205-message thread and asserts the newest is on screen and the oldest is not.
 - ~~Typing indicators are untested.~~ **Verified 2026-08-09** by
   `npm run test:browser`, which drives two browser contexts as two real users.
   The `realtime.messages` policies in `0013` work against the live project.
@@ -489,9 +549,12 @@ Known and deliberate:
   not mark anything as read. Whether the badge should respect a mute is a
   product call nobody has made.
 - **The badge is published through a module-level store** (`src/lib/unread.js`)
-  rather than context, because `ConversationList` and `BottomNav` are each
-  mounted twice on `/home` (see #9). A debug run counted **four** badges for one
-  unread message. The store makes that harmless; it does not make it right.
+  rather than context. The reason was that `ConversationList` and `BottomNav`
+  were each mounted twice on `/home` — a debug run counted **four** badges for
+  one unread message — and **that is fixed** (see #9, 2026-08-14): there is one
+  of each now. The store stays because it is still the right shape for a value
+  one component computes and a sibling elsewhere in the tree displays, but it is
+  no longer load-bearing against a duplicate, and context would work fine now.
 - Read marking is what clears it, so it inherits the race noted in #11.
 
 ## 13. Group management — DONE, 2026-08-11
@@ -518,9 +581,28 @@ Known gaps:
 - **No record of who added or removed whom.** Members appear and vanish with no
   history, which for a group used to agree things is the same gap as #11's
   missing edit history.
-- **No invite flow.** The admin adds people directly; there is no accept step,
-  so anyone can be pulled into any group without consent. `blocked_account_ids`
-  is not consulted.
+- ~~No invite flow, and the block list is not consulted.~~ **Both closed
+  2026-08-16** by `0019_group_invites.sql`. These read as two gaps and were
+  really one: the admin added people directly, so there was no consent step —
+  and since nothing checked `blocked_account_ids`, **someone you had blocked
+  could still put you in a room with themselves**, which is most of what
+  blocking is supposed to prevent.
+
+  `group_add_member()` is dropped rather than aliased: a function named "add"
+  that now only asks would be misread. `group_invite_member()` creates a pending
+  invite after checking admin, capacity, the block list and the invitee's
+  `group_add_permission`; `group_invite_respond()` is the only thing that
+  changes `participant_ids`, and it re-checks capacity and membership at accept
+  time because an invite can sit for days. Listing is an RPC rather than a
+  select, because the invitee is by definition not a member yet and
+  `conversations_select_member` will not show them the group's name — it returns
+  the name and the inviter and nothing else about a conversation they have not
+  joined.
+
+  **Applied 2026-08-16.** The e2e suite now asserts the whole flow: a non-admin
+  refused, a blocked admin refused, an invitation that does not by itself add
+  anyone, someone else unable to answer it, the invitee seeing a group name she
+  is not yet a member of, and acceptance putting her in.
 - **Admin is a single point of failure.** One admin, no co-admins, and no way to
   transfer deliberately — succession only happens by leaving.
 - The member list still reads `accounts` directly, so it inherits the exposure
