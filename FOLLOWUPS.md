@@ -496,6 +496,14 @@ Known gaps, in rough order of how soon someone will notice:
   raised, and no event ever arrives, so the code reads as correct and does
   nothing. **Applied 2026-08-16**, and the browser suite now
   asserts a reaction reaching the other person with no reload.
+- **A new contact request now badges the Contacts tab** (2026-08-17), counted
+  together with pending group invitations by `src/lib/pending.js` — the same
+  tiny-store shape as `unread.js`, published by `AppLayout` because the badge
+  must appear wherever you are rather than only on the Contacts screen. Contact
+  requests update live; **group invitations do not**, because `group_invites`
+  was never added to the realtime publication (0019), so one of those lands on
+  the next navigation instead. A migration would fix it; a badge did not seem
+  worth one.
 - **Deleting a message does not clear the notification** already on someone's
   lock screen. The service worker would need to close notifications by tag.
 - ~~The conversation-list realtime channel never received row data.~~ **Fixed

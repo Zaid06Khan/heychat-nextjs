@@ -35,6 +35,7 @@ export function setSoundEnabled(enabled) {
 }
 
 let ctx = null;
+let primed = false;
 
 /**
  * One AudioContext for the page, created on first use.
@@ -54,6 +55,42 @@ function getContext() {
 }
 
 /**
+ * Wake the audio system on the first real user gesture.
+ *
+ * Browsers refuse to run an AudioContext until the document has been
+ * interacted with, and a context created before that stays `suspended` — which
+ * looks exactly like working code: oscillators get created, scheduled, and make
+ * no sound at all. `resume()` is itself ignored without a gesture, so calling
+ * it at play time only helps if the person happened to click recently.
+ *
+ * The case that broke: sign in (a click, so audio works), then reload or come
+ * back to a restored session. The new document has had no gesture, a message
+ * arrives, and nothing is heard. Every automated test missed it because
+ * driving a browser means clicking things.
+ *
+ * Called once from the app shell. `once: true` on each listener, and the
+ * context is created here so the very first sound is already running.
+ */
+export function primeAudio() {
+  if (primed || typeof window === 'undefined') return;
+  primed = true;
+
+  const wake = () => {
+    try {
+      const audio = getContext();
+      // Created inside a gesture handler, so this resume is the one that counts.
+      if (audio && audio.state === 'suspended') audio.resume().catch(() => {});
+    } catch {
+      /* no audio device, or a browser that refuses. Nothing to do. */
+    }
+  };
+
+  for (const evt of ['pointerdown', 'keydown', 'touchstart']) {
+    window.addEventListener(evt, wake, { once: true, passive: true });
+  }
+}
+
+/**
  * A short rising two-note blip. Quiet on purpose — this fires while the person
  * is already looking at the app, so it needs to be noticeable rather than loud.
  *
@@ -62,6 +99,25 @@ function getContext() {
  * that treating it as an error would be wrong.
  */
 export function playMessageSound() {
+  play([
+    { freq: 659.25, at: 0, len: 0.09 },
+    { freq: 880.0, at: 0.085, len: 0.13 },
+  ], 0.09);
+}
+
+/**
+ * The outgoing "sent" sound. One note, lower and quieter than the arrival blip.
+ *
+ * Deliberately different, and deliberately smaller. You already know you sent
+ * it — the sound is confirmation, not news — so it must not compete with the
+ * one that means somebody is talking to you. A single low note against a rising
+ * pair is distinguishable without having to think about it.
+ */
+export function playSentSound() {
+  play([{ freq: 392.0, at: 0, len: 0.075 }], 0.05);
+}
+
+function play(notes, peak) {
   if (!isSoundEnabled()) return;
 
   try {
@@ -69,12 +125,7 @@ export function playMessageSound() {
     if (!audio) return;
 
     const now = audio.currentTime;
-    // E5 then A5 — a small rising interval reads as "arrived" rather than
-    // "something is wrong", which a falling one does.
-    [
-      { freq: 659.25, at: 0, len: 0.09 },
-      { freq: 880.0, at: 0.085, len: 0.13 },
-    ].forEach(({ freq, at, len }) => {
+    notes.forEach(({ freq, at, len }) => {
       const osc = audio.createOscillator();
       const gain = audio.createGain();
       osc.type = 'sine';
@@ -83,7 +134,7 @@ export function playMessageSound() {
       // An envelope rather than a bare start/stop: cutting a sine off at full
       // amplitude produces an audible click, which sounds like a glitch.
       gain.gain.setValueAtTime(0, now + at);
-      gain.gain.linearRampToValueAtTime(0.09, now + at + 0.012);
+      gain.gain.linearRampToValueAtTime(peak, now + at + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + at + len);
 
       osc.connect(gain);

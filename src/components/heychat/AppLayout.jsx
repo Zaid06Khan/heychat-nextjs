@@ -3,6 +3,10 @@ import { Outlet, useLocation } from 'react-router-dom';
 import ConversationList from './ConversationList';
 import BottomNav from './BottomNav';
 import { syncPushSubscription } from '@/lib/push/client';
+import { primeAudio } from '@/lib/sound';
+import { refreshPending } from '@/lib/pending';
+import { getSession } from '@/lib/heychatAuth';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 /**
  * ONE ConversationList AND ONE BottomNav, positioned by CSS.
@@ -51,6 +55,12 @@ export default function AppLayout() {
   // expire and get rotated by the push service, and the failure is silent: the
   // user believes notifications are on and simply stops receiving them.
   useEffect(() => {
+    // Arm the audio system on the first tap or keypress anywhere in the app.
+    // Without this a page that loads straight into a restored session has had
+    // no gesture, so the AudioContext stays suspended and every "sound" is
+    // silently scheduled and never heard.
+    primeAudio();
+
     syncPushSubscription();
 
     // The service worker cannot re-subscribe by itself (it has no access to the
@@ -63,6 +73,57 @@ export default function AppLayout() {
     navigator.serviceWorker.addEventListener('message', onMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
   }, []);
+
+  /**
+   * Anything waiting on an answer — contact requests and group invitations —
+   * counted here rather than in Contacts, because the badge has to appear on
+   * the nav whether or not you are looking at that screen. That is the whole
+   * point: you should find out a request arrived without going to check.
+   *
+   * Refreshed on mount, whenever the route changes, and when a contact_requests
+   * row moves. Group invites are not on the realtime publication, so a new one
+   * lands on the next navigation rather than instantly — a compromise taken to
+   * avoid a migration for a badge.
+   */
+  const session = getSession();
+
+  useEffect(() => {
+    if (!session?.id) return;
+    refreshPending(session.id);
+  }, [session?.id, location.pathname]);
+
+  useEffect(() => {
+    if (!session?.id) return;
+    const supabase = getSupabaseBrowserClient();
+    let channel = null;
+    let cancelled = false;
+
+    (async () => {
+      // Same ordering rule as ConversationList: the socket needs this user's
+      // token before it can evaluate RLS, or every payload comes back empty.
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      const token = data?.session?.access_token;
+      if (token) {
+        try { await supabase.realtime.setAuth(token); } catch { /* older client */ }
+      }
+      if (cancelled) return;
+
+      channel = supabase
+        .channel(`pending:${session.id}:${Math.random().toString(36).slice(2)}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'contact_requests' },
+          () => refreshPending(session.id)
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [session?.id]);
 
   const inConversation = location.pathname.startsWith('/chat/');
   const onHome = location.pathname === '/home';

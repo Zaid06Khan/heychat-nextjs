@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { MessageCircle, Users, User, Settings } from 'lucide-react';
 import { t } from '@/lib/i18n';
 import { useUnreadTotal } from '@/lib/unread';
+import { usePendingCount } from '@/lib/pending';
 
 const ITEMS = [
   { to: '/home', icon: MessageCircle, label: 'nav.chats' },
@@ -21,6 +22,10 @@ export default function BottomNav({ className = '' }) {
   // Published by ConversationList, which already counts them. No request of
   // its own — see src/lib/unread.js for why this is a store and not a prop.
   const unread = useUnreadTotal();
+  // Contact requests and group invitations. Same store shape as the unread
+  // count, published by AppLayout because the badge has to show wherever you
+  // are, not only on the Contacts screen.
+  const pending = usePendingCount();
 
   return (
     <nav className={`px-2 pt-2 pb-3 border-t-2 border-foreground bg-background flex items-center justify-around ${className}`}>
@@ -37,14 +42,24 @@ export default function BottomNav({ className = '' }) {
           >
             <span className="relative">
               <Icon className="w-5 h-5" strokeWidth={2.25} />
-              {/* Only Chats carries a count — it is the only tab where
-                  "something happened while you were away" is a number. */}
+              {/* Two tabs carry a count, and they mean different things:
+                  Chats is unread messages, Contacts is people waiting on an
+                  answer from you. Same treatment because both are "something
+                  happened while you were away". */}
               {to === '/home' && unread > 0 && (
                 <span
                   aria-label={`${unread} unread`}
                   className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground border-2 border-background text-[9px] font-extrabold flex items-center justify-center"
                 >
                   {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+              {to === '/contacts' && pending > 0 && (
+                <span
+                  aria-label={`${pending} pending request${pending === 1 ? '' : 's'}`}
+                  className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground border-2 border-background text-[9px] font-extrabold flex items-center justify-center"
+                >
+                  {pending > 99 ? '99+' : pending}
                 </span>
               )}
             </span>

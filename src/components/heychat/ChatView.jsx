@@ -15,6 +15,7 @@ import {
 } from '@/lib/messages/interactions';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { hideConversation, getConversationHides } from '@/lib/conversations';
+import { playSentSound } from '@/lib/sound';
 import { createTypingChannel } from '@/lib/messages/typing';
 import { markRead } from '@/lib/unread';
 import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle, Trash2 } from 'lucide-react';
@@ -254,6 +255,10 @@ export default function ChatView() {
     setSendError(null);
     try {
       await sendMessage(payload);
+      // After the server accepts it, not before — a sound for a message that
+      // then fails to send is a lie, and failures are visible enough now
+      // (rate limits) to matter.
+      playSentSound();
     } catch (e) {
       console.error(e);
       setSendError({ message: e.message || 'Could not send that message.', payload });

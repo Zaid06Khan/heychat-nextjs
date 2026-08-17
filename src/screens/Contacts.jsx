@@ -9,6 +9,7 @@ import GroupCreateDialog from '@/components/heychat/GroupCreateDialog';
 import DiscoverSuggestions from '@/components/heychat/DiscoverSuggestions';
 import { myGroupInvites, respondToInvite } from '@/lib/groups';
 import { removeContact } from '@/lib/conversations';
+import { refreshPending } from '@/lib/pending';
 
 export default function Contacts() {
   const [tab, setTab] = useState('contacts');
@@ -42,6 +43,11 @@ export default function Contacts() {
     // member of the conversation yet, so conversations RLS will not show them
     // its name. Degrades to none rather than throwing while 0019 is unapplied.
     setGroupInvites(await myGroupInvites().catch(() => []));
+
+    // Keep the nav badge in step with this screen. Accepting or declining here
+    // is the main way the count goes down, and without this it would keep
+    // advertising a request you just dealt with.
+    refreshPending(session.id);
   };
 
   useEffect(() => { loadData(); }, []);
