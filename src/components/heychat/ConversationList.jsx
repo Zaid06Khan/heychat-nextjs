@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getSession, logout, getCurrentAccount } from '@/lib/heychatAuth';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getMutes } from '@/lib/notifications/mutes';
 import { getConversationHides } from '@/lib/conversations';
+import { playMessageSound } from '@/lib/sound';
 import { setUnreadTotal } from '@/lib/unread';
 import { MessageCircle, Users, User, Plus, Search, BellOff } from 'lucide-react';
 import Avatar from './Avatar';
@@ -19,6 +20,9 @@ export default function ConversationList() {
   const session = getSession();
   const navigate = useNavigate();
   const location = useLocation();
+  // Muted conversation ids, readable from inside the realtime callback without
+  // making `conversations` a dependency of the effect that opens the channel.
+  const mutedRef = useRef(new Set());
 
   useEffect(() => {
     if (!session) return;
@@ -42,34 +46,91 @@ export default function ConversationList() {
       timer = setTimeout(() => loadConversations(), 250);
     };
 
-    // Unique topic per mount. supabase.channel() hands back the EXISTING
-    // channel for a topic it already knows, so a fixed name meant a remount
-    // got a channel that was already subscribed — and attaching handlers to a
-    // subscribed channel throws "cannot add postgres_changes callbacks after
-    // subscribe()". React StrictMode double-invokes effects in dev, so this
-    // fired on every load.
-    const channel = supabase.channel(
-      `conversation-list:${session.id}:${Math.random().toString(36).slice(2)}`
-    );
-
-    // Registered synchronously, before any await. These used to sit inside the
-    // async block below, which left a window of two round trips between
-    // creating the channel and configuring it — long enough for the cleanup
-    // and a second mount to interleave.
-    channel
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, reload)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, reload)
-      .subscribe();
+    // AUTH BEFORE SUBSCRIBE, and this order is load-bearing.
+    //
+    // Realtime evaluates RLS per subscriber to decide what it may send. It can
+    // only do that once the socket has been given this user's JWT — and
+    // supabase-js applies that asynchronously. This channel used to be created
+    // and subscribed synchronously at the top of the effect, which meant it
+    // registered before the token existed, the RLS check ran unauthorised, and
+    // EVERY payload arrived as `{ new: {}, errors: ['Error 401: Unauthorized'] }`.
+    //
+    // It went unnoticed for months because the handler was `reload`, which
+    // ignores its argument — the list refetched and looked correct. It only
+    // surfaced when something needed to read `payload.new.sender_id`. ChatView's
+    // channels were unaffected by luck rather than design: they open after two
+    // awaits, by which point the token is set.
+    //
+    // The handlers are still registered synchronously *relative to creating the
+    // channel*, which is what the previous fix here was about — the await
+    // happens before the channel exists, not between creating and configuring it.
+    let channel = null;
+    let cancelled = false;
 
     (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (cancelled) return;
+
+      const token = sessionData?.session?.access_token;
+      if (token) {
+        try {
+          await supabase.realtime.setAuth(token);
+        } catch {
+          // An older supabase-js applies the token itself on auth state change.
+          // Failing here means we fall back to that, not that nothing works.
+        }
+      }
+      if (cancelled) return;
+
+      channel = supabase.channel(
+        `conversation-list:${session.id}:${Math.random().toString(36).slice(2)}`
+      );
+
+      /**
+       * The arrival sound.
+       *
+       * Lives here rather than in ChatView because this component is mounted for
+       * the whole signed-in app (AppLayout's aside), so one handler covers every
+       * conversation — and because putting it in both would ring twice on
+       * desktop, where both are on screen at once.
+       *
+       * ONLY WHEN THE TAB IS VISIBLE. If it is hidden, a push notification is
+       * the thing that should make a noise, and the OS plays that. The overlap
+       * that remains is narrow and deliberate: with push enabled and the app
+       * focused on some *other* conversation, the service worker still shows a
+       * notification (it only suppresses for the conversation you are actually
+       * looking at), so both can sound. The Settings toggle is the escape hatch.
+       */
+      const onMessageEvent = (payload) => {
+        reload();
+        if (payload.eventType !== 'INSERT') return;
+        const row = payload.new;
+        // No sender_id means the payload came back empty — the bug above. Better
+        // to stay silent than to ring for the person's own message.
+        if (!row?.sender_id || row.sender_id === session.id) return;
+        if (document.visibilityState !== 'visible') return;
+        // A muted conversation is silent, which is what muting means. Realtime is
+        // RLS-scoped, so anything arriving here is already something this account
+        // is entitled to see.
+        if (mutedRef.current.has(row.conversation_id)) return;
+        playMessageSound();
+      };
+
+      channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, onMessageEvent)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, reload)
+        .subscribe();
+
       const acc = await getCurrentAccount();
+      if (cancelled) return;
       setAccount(acc);
       await loadConversations();
     })();
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, []);
 
@@ -173,6 +234,7 @@ export default function ConversationList() {
       });
 
       setConversations(visible);
+      mutedRef.current = new Set(visible.filter((c) => c.muted).map((c) => c.id));
 
       // Publishes to the nav badge. Muted conversations still count — muting
       // silences the notification, it does not mark anything as read.

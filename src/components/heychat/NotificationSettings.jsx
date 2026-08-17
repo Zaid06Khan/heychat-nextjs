@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Bell, BellOff, AlertTriangle, EyeOff } from 'lucide-react';
+import { isSoundEnabled, setSoundEnabled, playMessageSound } from '@/lib/sound';
+import { Bell, BellOff, AlertTriangle, EyeOff, Volume2 } from 'lucide-react';
 import { enablePush, disablePush, getPushState } from '@/lib/push/client';
 import { base44 } from '@/api/base44Client';
 
@@ -20,6 +21,14 @@ export default function NotificationSettings({ account, onAccountChange }) {
   const [state, setState] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Read in an effect, not as an initialiser: localStorage does not exist
+  // during the server render, and reading it inline would make the first client
+  // render disagree with the HTML.
+  const [sound, setSound] = useState(true);
+
+  useEffect(() => {
+    setSound(isSoundEnabled());
+  }, []);
 
   useEffect(() => {
     getPushState().then(setState);
@@ -150,6 +159,36 @@ export default function NotificationSettings({ account, onAccountChange }) {
             />
           </label>
         )}
+
+        {/* Deliberately outside the push switch's `on &&`. This is a different
+            channel: the in-app sound works whether or not notifications are
+            enabled, because it plays while you are looking at the app rather
+            than on a lock screen. Per device, like the switch above. */}
+        <label className="flex items-center justify-between gap-3 cursor-pointer p-3 border-t border-border">
+          <div className="flex items-center gap-3 min-w-0">
+            <Volume2 className="w-5 h-5 text-muted-foreground shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">Sound for new messages</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Plays while the app is open. Muted conversations stay silent.
+              </p>
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={sound}
+            onChange={(e) => {
+              setSound(e.target.checked);
+              setSoundEnabled(e.target.checked);
+              // Play it on the way on, so "what does it sound like" is answered
+              // by turning it on rather than by waiting for a message. This is
+              // also a real user gesture, which is what unblocks the
+              // AudioContext for the rest of the session.
+              if (e.target.checked) playMessageSound();
+            }}
+            className="w-5 h-5 accent-primary shrink-0"
+          />
+        </label>
 
         {error && (
           <p className="text-xs text-destructive px-3 pb-2 flex items-start gap-1.5">

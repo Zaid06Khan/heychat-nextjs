@@ -145,6 +145,28 @@ const migrationApplied = async (filename) => {
   return Boolean(data);
 };
 
+/**
+ * Counts every oscillator the page creates.
+ *
+ * The arrival sound is synthesised with the Web Audio API, and audible output is
+ * not observable from a headless browser — but "did it try to make a sound" is
+ * exactly the logic worth guarding, and that is one counter. Installed before
+ * any app code runs.
+ */
+const countSounds = (page) =>
+  page.addInitScript(() => {
+    window.__osc = 0;
+    const Real = window.AudioContext || window.webkitAudioContext;
+    if (!Real) return;
+    const orig = Real.prototype.createOscillator;
+    Real.prototype.createOscillator = function (...a) {
+      window.__osc += 1;
+      return orig.apply(this, a);
+    };
+  });
+
+const soundCount = (page) => page.evaluate(() => window.__osc || 0);
+
 const watchConsole = (page, who) => {
   page.on('console', (m) => {
     if (m.type() === 'error') consoleErrors.push(`[${who}] ${m.text().slice(0, 300)}`);
@@ -204,6 +226,7 @@ try {
   const B = await ctxB.newPage();
   watchConsole(A, 'A');
   watchConsole(B, 'B');
+  await countSounds(A);
 
   console.log('\n--- 1. LANDING AND REGISTRATION ---');
   await A.goto(APP, { waitUntil: 'domcontentloaded' });
@@ -423,6 +446,25 @@ try {
   await B.keyboard.press('Enter');
   check(await seen(A, '[aria-label="1 unread"]'),
     'an unread badge appears in the list without reloading');
+
+  // Same event, second effect. A is on /home with the tab visible, so the
+  // arrival sound should have fired — and it can only fire if the realtime
+  // payload actually carried `sender_id`, which for months it did not: the
+  // conversation-list channel subscribed before supabase-js had applied the
+  // auth token, so Realtime returned `{ new: {}, errors: ['Error 401:
+  // Unauthorized'] }` every time. Nothing noticed, because the handler ignored
+  // its argument. This assertion is the tripwire for that regression.
+  const soundsAfterIncoming = await soundCount(A);
+  check(soundsAfterIncoming > 0,
+    'and the arrival sound plays for an incoming message',
+    `oscillators=${soundsAfterIncoming}`);
+
+  // A's own message must not ring.
+  const beforeOwn = await soundCount(A);
+  await A.fill('textarea', 'my own message, no sound').catch(() => {});
+  const stillQuiet = await soundCount(A);
+  check(stillQuiet === beforeOwn, 'and typing does not make one',
+    `oscillators ${beforeOwn} -> ${stillQuiet}`);
 
   // Opening the conversation marks it read, which must clear the badge —
   // otherwise the count only ever climbs.

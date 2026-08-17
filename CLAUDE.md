@@ -31,7 +31,7 @@ npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
 npm run test:e2e -- http://localhost:3000       # 117 assertions, backend boundaries
-npm run test:browser -- http://localhost:3000   # 62 assertions, real UI, 2 contexts
+npm run test:browser -- http://localhost:3000   # 64 assertions, real UI, 2 contexts
 npm run db:plan        # migrations in order — needs no database
 npm run db:status      # what is applied, what is pending
 npm run push:keys      # print VAPID env lines
@@ -120,6 +120,10 @@ These each exist because of a specific bug or a specific attack. Changing them n
   write `content` itself.
 - **Joining a group requires accepting an invitation** (0019), and an invite from someone
   you have blocked is refused. `group_add_member` no longer exists.
+- **Give Realtime the auth token BEFORE subscribing a channel.** It evaluates RLS
+  per subscriber to decide what it may send; subscribe first and every payload comes
+  back `{ new: {}, errors: ['Error 401: Unauthorized'] }`. Silent if the handler
+  ignores its argument, which is how it survived months in ConversationList.
 - **Nobody can delete a direct conversation.** Both parties have a copy and neither owns
   it. "Delete chat" writes a `conversation_hides` row with a timestamp; 0023 removed the
   policy that let either party cascade-delete every message for both people.

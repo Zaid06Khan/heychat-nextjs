@@ -142,7 +142,7 @@ npx playwright install chromium    # once
 npm run test:browser -- http://localhost:3000
 ```
 
-**62 assertions, and it is not the same thing as `test:e2e`.** That suite talks
+**64 assertions, and it is not the same thing as `test:e2e`.** That suite talks
 to Supabase directly and proves the boundaries hold; it never renders a
 component. This drives the real UI in two browser contexts as two real users —
 register, contact request, accept, send, typing indicator, reaction, reply,

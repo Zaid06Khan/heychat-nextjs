@@ -498,6 +498,20 @@ Known gaps, in rough order of how soon someone will notice:
   asserts a reaction reaching the other person with no reload.
 - **Deleting a message does not clear the notification** already on someone's
   lock screen. The service worker would need to close notifications by tag.
+- ~~The conversation-list realtime channel never received row data.~~ **Fixed
+  2026-08-17.** It created and subscribed its channel synchronously at the top
+  of the effect, before supabase-js had applied the session token to the
+  socket — so Realtime evaluated RLS unauthorised and every payload arrived as
+  `{ new: {}, errors: ['Error 401: Unauthorized'] }`.
+
+  **It hid for months because the handler was `reload`, which ignores its
+  argument.** The list refetched and looked perfect. It only surfaced when the
+  arrival sound needed `payload.new.sender_id` to tell your own message from
+  someone else's, and got `undefined`. ChatView's channels were unaffected by
+  luck rather than design — they open after two awaits, by which point the token
+  is set. The session is now fetched and `realtime.setAuth()` called before the
+  channel exists, and the browser suite asserts the sound fires, which can only
+  happen if the payload carries real columns.
 - **The sender does not see their own message until realtime delivers it.**
   `ChatView` has no optimistic append: sending posts to `/api/messages`, and the
   bubble appears only when the subscription fires and triggers a reload. So the

@@ -20,3 +20,4 @@ supabase/.temp
 
 # Scratch output for verification builds (see next.config.mjs distDir).
 .next-verify/
+.env*
