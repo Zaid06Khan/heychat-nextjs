@@ -115,7 +115,7 @@ export default function NotificationSettings({ account, onAccountChange }) {
             mobile Safari and gets nothing deserves to know why. */}
         {!unavailable && !on && (
           <p className="text-xs text-muted-foreground px-3 pb-2">
-            On iPhone, add HeyChat to your home screen first — Safari only delivers
+            On iPhone, add Calamuse to your home screen first — Safari only delivers
             notifications to installed apps.
           </p>
         )}

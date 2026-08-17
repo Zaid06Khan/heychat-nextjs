@@ -16,7 +16,7 @@ export default function Landing() {
           <div className="w-20 h-20 mx-auto rounded-3xl gradient-bg flex items-center justify-center shadow-pop-lg mb-8 animate-slide-up">
             <Logo className="w-11 h-11" />
           </div>
-          <h1 className="text-6xl font-display font-extrabold text-foreground mb-3 animate-slide-up">HeyChat</h1>
+          <h1 className="text-6xl font-display font-extrabold text-foreground mb-3 animate-slide-up">Calamuse</h1>
           <p className="text-xl font-display font-bold text-primary mb-3 animate-slide-up">Private. Simple. Yours.</p>
           <p className="text-sm font-medium text-muted-foreground mb-10 max-w-sm mx-auto animate-slide-up">
             Messages that disappear when you want them to. No phone number, no

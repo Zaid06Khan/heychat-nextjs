@@ -76,7 +76,7 @@ export default function ReportDialog({ open, onClose, reportedId, reportedName, 
           </button>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          Report this user for misbehaviour or inappropriate content. The HeyChat team will review your report and take appropriate action.
+          Report this user for misbehaviour or inappropriate content. The Calamuse team will review your report and take appropriate action.
         </p>
         <div className="space-y-2 mb-4">
           {REASONS.map((r) => (

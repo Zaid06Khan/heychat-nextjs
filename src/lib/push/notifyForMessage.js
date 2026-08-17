@@ -116,7 +116,7 @@ export async function notifyForMessage({ message, conversation, senderId }) {
         : preview;
 
     const result = await sendPushToAccounts(group.ids, {
-      title: group.hidden ? 'HeyChat' : title,
+      title: group.hidden ? 'Calamuse' : title,
       body,
       conversationId: conversation.id,
       url: `/chat/${conversation.id}`,

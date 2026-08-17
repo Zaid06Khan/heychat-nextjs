@@ -334,7 +334,7 @@ export async function getSuggestions() {
  *
  * It swept expired disappearing messages from the browser on app start, which
  * meant a message set to vanish after 30 seconds vanished 30 seconds after the
- * next time somebody happened to open HeyChat — and never at all in a
+ * next time somebody happened to open Calamuse — and never at all in a
  * conversation nobody returned to. It also left the attachments behind.
  *
  * Both halves are now server-side and run whether or not anyone is looking:

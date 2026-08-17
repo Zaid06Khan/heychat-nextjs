@@ -82,3 +82,18 @@ export async function POST(request) {
 
   return Response.json({ ok: true, deleted: keys.length, remaining: count ?? 0 });
 }
+
+/**
+ * Vercel Cron calls this with GET, not POST.
+ *
+ * It also sends `Authorization: Bearer $CRON_SECRET` of its own accord when
+ * that variable is set on the project, which is exactly the check POST already
+ * makes — so the two conventions line up and this is a delegation rather than a
+ * second implementation.
+ *
+ * Without this the nightly job would 405 every time, and the only visible
+ * symptom would be storage quietly filling up with objects belonging to deleted
+ * messages. Kept as a separate export rather than loosening the method check,
+ * because "any method may delete files" is not the same promise.
+ */
+export const GET = POST;

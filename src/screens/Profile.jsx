@@ -48,7 +48,7 @@ export default function Profile() {
   const handleShare = async () => {
     const link = `${window.location.origin}/?ref=${account.username}`;
     if (navigator.share) {
-      try { await navigator.share({ title: 'HeyChat', text: `Connect with me on HeyChat: @${account.username}`, url: link }); } catch {}
+      try { await navigator.share({ title: 'Calamuse', text: `Connect with me on Calamuse: @${account.username}`, url: link }); } catch {}
     } else {
       try { await navigator.clipboard.writeText(link); alert('Profile link copied to clipboard!'); } catch { alert(link); }
     }

@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 /**
- * HeyChat service worker — notifications only.
+ * Calamuse service worker — notifications only.
  *
  * Deliberately NOT an offline cache. Caching a messaging app's shell is easy to
  * get wrong in a way that serves users a stale build for weeks, and offline
@@ -33,7 +33,7 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const title = payload.title || 'HeyChat';
+  const title = payload.title || 'Calamuse';
   const conversationId = payload.conversationId || null;
 
   event.waitUntil(showUnlessAlreadyLooking(title, payload, conversationId));

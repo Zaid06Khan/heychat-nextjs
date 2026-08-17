@@ -205,7 +205,7 @@ export default function ConversationList() {
             <div className="w-9 h-9 rounded-xl gradient-bg flex items-center justify-center shadow-pop-sm">
               <Logo className="w-5 h-5" />
             </div>
-            <span className="text-2xl font-display font-extrabold text-foreground">HeyChat</span>
+            <span className="text-2xl font-display font-extrabold text-foreground">Calamuse</span>
           </Link>
           <div className="flex items-center gap-1">
             <Link to="/contacts" className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">

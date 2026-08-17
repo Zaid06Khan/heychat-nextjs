@@ -1,6 +1,7 @@
-# HeyChat
+# Calamuse
 
-Self-hosted port of the Base44 HeyChat prototype. Next.js 15 (App Router) + React 19,
+Self-hosted port of the Base44 HeyChat prototype, renamed **Calamuse** on
+2026-08-16. Next.js 15 (App Router) + React 19,
 Supabase for Postgres / Auth / Storage / Realtime, Tailwind + shadcn on Radix.
 
 The app is still a **React Router SPA** mounted by a catch-all route (`ssr: false`).

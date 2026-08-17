@@ -29,12 +29,12 @@ const body = Plus_Jakarta_Sans({
 });
 
 export const metadata = {
-  title: 'HeyChat',
+  title: 'Calamuse',
   description: 'Private messaging. No phone number. No email. Just you.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    title: 'HeyChat',
+    title: 'Calamuse',
     statusBarStyle: 'default',
   },
 };
