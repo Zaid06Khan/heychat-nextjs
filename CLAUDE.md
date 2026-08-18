@@ -31,7 +31,7 @@ npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
 npm run test:e2e -- http://localhost:3000       # 117 assertions, backend boundaries
-npm run test:browser -- http://localhost:3000   # 92 assertions, real UI, 3 contexts
+npm run test:browser -- http://localhost:3000   # 108 assertions, real UI, 3 contexts
 npm run db:plan        # migrations in order — needs no database
 npm run db:status      # what is applied, what is pending
 npm run push:keys      # print VAPID env lines
@@ -148,6 +148,10 @@ These each exist because of a specific bug or a specific attack. Changing them n
   write `content` itself.
 - **Joining a group requires accepting an invitation** (0019), and an invite from someone
   you have blocked is refused. `group_add_member` no longer exists.
+- **A Realtime broadcast is not replayed to a late subscriber.** An offer sent
+  while the other side's channel was still subscribing was lost in silence — no
+  ring, no error. Calls acknowledge an offer and retry it once. Anything else
+  built on broadcast needs the same treatment or the same silence.
 - **Give Realtime the auth token BEFORE subscribing a channel.** It evaluates RLS
   per subscriber to decide what it may send; subscribe first and every payload comes
   back `{ new: {}, errors: ['Error 401: Unauthorized'] }`. Silent if the handler

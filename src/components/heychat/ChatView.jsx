@@ -19,7 +19,7 @@ import { playSentSound } from '@/lib/sound';
 import { startCall, watchForCalls, getCallState } from '@/lib/calls/controller';
 import { createTypingChannel } from '@/lib/messages/typing';
 import { markRead } from '@/lib/unread';
-import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle, Trash2, Phone } from 'lucide-react';
+import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle, Trash2, Phone, Video } from 'lucide-react';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
@@ -466,7 +466,7 @@ export default function ChatView() {
       {/* Bar spans the pane; its contents track the thread's column so the
           avatar and the messages below it share a left edge. */}
       <div className="border-b-2 border-foreground bg-background">
-      <div className="flex items-center gap-3 px-4 py-3 max-w-3xl mx-auto w-full relative">
+      <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 max-w-3xl mx-auto w-full relative">
         <Link to="/home" className="md:hidden text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-5 h-5" />
         </Link>
@@ -492,38 +492,56 @@ export default function ChatView() {
             </p>
           </div>
         )}
-        {/* The call button is deliberately absent. CallOverlay renders your own
-            camera and nothing else — there is no RTCPeerConnection, no
-            signalling and no TURN, so two people "on a call" each see
-            themselves. Shipping a button that looks like it works is worse
-            than not having one. The /call route still exists so the screen can
-            be developed against; see FOLLOWUPS.md §1. */}
-        {/* The call button is back, and this time it is attached to something.
-            Direct conversations only — group calls need an SFU (FOLLOWUPS §1),
-            and a button that rings nobody is what was removed before. */}
+        {/* SIX ACTIONS DO NOT FIT ON A PHONE unless they are told not to shrink.
+            Without this group the flex row compressed the buttons and let the
+            title wrap underneath them — at 390px "Encrypted in transit" sat on
+            top of the call icons. The group holds its width and the title
+            truncates instead, which is the right thing to sacrifice. */}
+        <div className="flex items-center gap-0 sm:gap-0.5 shrink-0">
+        {/* Direct conversations only — group calls need an SFU (FOLLOWUPS §1),
+            and a button that rings nobody is what was removed here once before.
+            Two buttons rather than one with a menu: choosing audio or video is
+            the decision, and it is made before the call, not during it. */}
         {conversation?.type === 'direct' && (
-          <button
-            onClick={() =>
-              startCall({
-                conversationId,
-                meId: session.id,
-                peerName: otherUser?.display_name || otherUser?.username || 'Someone',
-              })
-            }
-            disabled={getCallState().status !== 'idle'}
-            aria-label={`Call ${otherUser?.display_name || otherUser?.username || 'them'}`}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition disabled:opacity-40"
-          >
-            <Phone className="w-5 h-5" />
-          </button>
+          <>
+            <button
+              onClick={() =>
+                startCall({
+                  conversationId,
+                  meId: session.id,
+                  peerName: otherUser?.display_name || otherUser?.username || 'Someone',
+                })
+              }
+              disabled={getCallState().status !== 'idle'}
+              aria-label={`Call ${otherUser?.display_name || otherUser?.username || 'them'}`}
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition disabled:opacity-40"
+            >
+              <Phone className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() =>
+                startCall({
+                  conversationId,
+                  meId: session.id,
+                  peerName: otherUser?.display_name || otherUser?.username || 'Someone',
+                  video: true,
+                })
+              }
+              disabled={getCallState().status !== 'idle'}
+              aria-label={`Video call ${otherUser?.display_name || otherUser?.username || 'them'}`}
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition disabled:opacity-40"
+            >
+              <Video className="w-5 h-5" />
+            </button>
+          </>
         )}
-        <button onClick={() => setShowReport(true)} className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
+        <button onClick={() => setShowReport(true)} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
           <Flag className="w-5 h-5" />
         </button>
         <button
           onClick={() => setConfirmDeleteChat(true)}
           aria-label="Delete this chat"
-          className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-secondary transition"
+          className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-secondary transition"
         >
           <Trash2 className="w-5 h-5" />
         </button>
@@ -531,7 +549,7 @@ export default function ChatView() {
           <button
             onClick={() => setShowMute(!showMute)}
             aria-label={mute ? 'Muted — change' : 'Mute this conversation'}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition"
           >
             {mute ? <BellOff className="w-5 h-5 text-primary" /> : <Bell className="w-5 h-5" />}
           </button>
@@ -577,7 +595,7 @@ export default function ChatView() {
           )}
         </div>
         <div className="relative">
-          <button onClick={() => setShowTimer(!showTimer)} className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
+          <button onClick={() => setShowTimer(!showTimer)} className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
             <Flame className={`w-5 h-5 ${conversation.disappearing_timer > 0 ? 'text-primary' : ''}`} />
           </button>
           {showTimer && (
@@ -599,6 +617,7 @@ export default function ChatView() {
               </div>
             </>
           )}
+        </div>
         </div>
       </div>
       </div>

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Phone, PhoneOff, Mic, MicOff, AlertTriangle } from 'lucide-react';
+import { Phone, PhoneOff, Mic, MicOff, AlertTriangle, Video } from 'lucide-react';
 import { useCall, acceptCall, declineCall, endCall, toggleMute } from '@/lib/calls/controller';
 import { hasTurn } from '@/lib/calls/ice';
+import VideoStage from './VideoStage';
 
 /**
  * The call surface: ringing, connecting, connected, and what went wrong.
@@ -11,6 +12,11 @@ import { hasTurn } from '@/lib/calls/ice';
  * Settings, and an incoming call must be answerable wherever you are.
  *
  * Renders nothing at all when idle, so it costs one subscription and no layout.
+ *
+ * A VIDEO CALL HANDS OVER TO VideoStage once it is under way. Ringing stays a
+ * bar in both cases — a full-screen takeover for a call you have not accepted
+ * is the behaviour people hate in other apps, and answering must not be the
+ * only way out of it.
  */
 
 const REASONS = {
@@ -43,6 +49,11 @@ export default function CallBar() {
   if (call.status === 'idle') return null;
 
   const who = call.peerName || 'Someone';
+
+  // Everything past ringing, on a video call, belongs to the stage.
+  if (call.video && ['calling', 'connecting', 'connected'].includes(call.status)) {
+    return <VideoStage call={call} />;
+  }
 
   if (call.status === 'error') {
     return (
@@ -77,7 +88,10 @@ export default function CallBar() {
           </span>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground truncate">{who}</p>
-            <p className="text-xs text-muted-foreground">Incoming call</p>
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              {call.video && <Video className="w-3 h-3 shrink-0" />}
+              {call.video ? 'Incoming video call' : 'Incoming call'}
+            </p>
           </div>
           <button
             onClick={declineCall}

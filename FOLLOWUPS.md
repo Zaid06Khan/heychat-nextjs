@@ -16,7 +16,7 @@ the four DONE sections below each carry gaps that are still open.
 
 | § | Status | What it is | Still open? |
 |---|---|---|---|
-| 1 | PARTIAL | 1:1 audio calls work; video and groups do not | Yes — **no TURN relay**, so ~15-20% of networks cannot connect |
+| 1 | PARTIAL | 1:1 audio **and video** calls work; groups do not | Yes — **no TURN relay**, so ~15-20% of networks cannot connect |
 | 2 | DROPPED | Watch-and-earn | No → `FOLLOWUPS-CLOSED.md` |
 | 3 | DECISION | No end-to-end encryption | Yes — **plan written**, `docs/E2E-ENCRYPTION.md`. Needs three product answers before any code |
 | 4 | CLOSED | Attachments were public by URL | No → `FOLLOWUPS-CLOSED.md` |
@@ -32,7 +32,7 @@ the four DONE sections below each carry gaps that are still open.
 
 ---
 
-## 1. Calls — audio works, 2026-08-18. Video and groups do not.
+## 1. Calls — 1:1 audio and video work, 2026-08-18. Groups do not.
 
 **1:1 audio calls connect for real.** `0025_call_channels.sql` authorises a
 private `call:<conversation_id>` Realtime channel using the same
@@ -90,6 +90,40 @@ Two details worth keeping:
   They were audible in isolation and inaudible in a room, which is
   indistinguishable from broken. Now 0.28 and 0.16.
 
+**Video calls work, 2026-08-18.** A second button in the chat header starts one.
+`VideoStage.jsx` is the surface — their video full-bleed, yours picture-in-picture
+and mirrored, with mute, camera and hang-up. It is mounted from `CallBar`, which
+is in `AppLayout`, so the call still outlives the screen it started on.
+
+Four decisions in there are load-bearing:
+
+- **The kind of call is chosen before it starts, not during.** Turning a camera
+  on mid-call means renegotiating the peer connection, which needs glare
+  handling to be safe. Inside a video call the camera toggles by disabling the
+  track, which needs no renegotiation at all. Escalating audio -> video is still
+  open, below.
+- **An audio call never asks for the camera.** Unchanged from the first pass and
+  still the right call: a permission prompt for a device the app will not use is
+  the one people refuse, and refusing is sticky.
+- **A video call with no camera becomes an audio call**, rather than no call.
+  `state.video` stays true if *they* called with video, so it stays asymmetric —
+  one person visible is worth more than a call that refuses to connect.
+- **Camera state is signalled, not inferred.** A disabled track keeps arriving,
+  as black frames on a `live` track, so the receiver cannot tell "camera off"
+  from a call that has broken. Both sides send `camera` on toggle and once on
+  connect, and the stage shows their name rather than a black rectangle.
+
+**And it exposed a bug that had nothing to do with video.** An offer sent in the
+window between the other person opening the conversation and their Realtime
+channel finishing its subscribe was **lost in silence** — Realtime does not
+replay a broadcast to a subscriber who was not there yet. Their phone never
+rang, yours rang out, nothing logged an error. It was invisible in the suite
+because the suite's own waits happened to be slower than the race; it only
+appeared when a tighter script drove the same flow. The callee now acknowledges
+an offer with `ringing`, and an unacknowledged offer is sent once more after two
+seconds. A repeat offer on a call already ringing re-acknowledges rather than
+starting a second ringtone.
+
 ### Still open
 
 - **No TURN relay yet.** Roughly 15–20% of connections cannot go peer-to-peer —
@@ -103,9 +137,16 @@ Two details worth keeping:
   scoped to the chat on screen, because listening everywhere means one open
   channel per conversation, permanently. A missed call is currently silent — no
   notification, no record.
-- **Video.** Deliberately deferred: audio first, and `getUserMedia` asks for the
-  microphone only, because requesting a camera the app will not use is the
-  prompt people refuse.
+- **Escalating an audio call to video mid-call.** The one part of video not
+  built. It needs renegotiation with glare handling (both sides offering at
+  once); the "perfect negotiation" pattern is the known answer. Today you hang
+  up and call back with the video button.
+- **Nothing adapts to a bad connection.** No resolution or bitrate ceiling is
+  set, so a weak uplink degrades however the browser decides. Worth a
+  `scaleResolutionDownBy` / `maxBitrate` pass on the video sender before this
+  meets a real mobile network.
+- **No picture-in-picture or backgrounding.** Leaving the tab keeps the call up
+  and the audio flowing, but the video surface is gone until you return.
 - **Group calls need an SFU.** Mesh peer-to-peer collapses past ~4 participants,
   so the call button is hidden for groups rather than present and broken.
   LiveKit or Daily remains the sane answer if group calls are ever wanted — and

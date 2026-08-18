@@ -240,7 +240,10 @@ try {
   // Microphone granted up front: Playwright keeps its own permission state
   // regardless of the fake-device flags, and a denied getUserMedia surfaces as
   // "could not use your microphone" rather than as a signalling failure.
-  const callCtx = { viewport: { width: 1280, height: 900 }, permissions: ['microphone'] };
+  const callCtx = {
+    viewport: { width: 1280, height: 900 },
+    permissions: ['microphone', 'camera'],
+  };
   const ctxA = await browser.newContext(callCtx);
   const ctxB = await browser.newContext(callCtx);
   const A = await ctxA.newPage();
@@ -580,6 +583,75 @@ try {
     check(await gone(B, 'button[aria-label="Hang up"]', 10000),
       `call ${round}: hanging up clears both sides`);
     await A.waitForTimeout(1500);
+  }
+
+  console.log('\n--- 7d. A VIDEO CALL ---');
+  // The fake camera is a real camera as far as WebRTC is concerned: a track is
+  // captured, encoded, sent over the peer connection and decoded at the other
+  // end. `videoWidth` on the receiving element is the honest proof that frames
+  // arrived — the element existing proves nothing at all.
+  await A.locator(`button[aria-label^="Video call "]`).first().click();
+
+  const rungVideo = await seen(B, 'text=Incoming video call', 20000);
+  check(rungVideo, 'the other side is told it is a VIDEO call before answering');
+
+  if (rungVideo) {
+    // Ringing stays a bar, deliberately: a full-screen takeover for a call you
+    // have not accepted is the thing people hate in other apps.
+    check(await B.locator('button[aria-label="Accept call"]').isVisible(),
+      'and can still answer from the bar rather than a takeover');
+
+    await B.locator('button[aria-label="Accept call"]').click();
+    check(await seen(A, 'button[aria-label="Hang up"]', 30000), 'the video call connects');
+
+    // The stage, not the bar.
+    check(await seen(A, 'button[aria-label="Turn camera off"]', 15000),
+      'the caller gets the video stage with a camera control');
+    check(await seen(B, 'button[aria-label="Turn camera off"]', 15000),
+      'and so does the person who answered');
+
+    const framesArrived = async (page) =>
+      page.waitForFunction(() => {
+        const vids = [...document.querySelectorAll('video')];
+        return vids.some((v) => v.videoWidth > 0 && v.videoHeight > 0);
+      }, undefined, { timeout: 30000 }).then(() => true).catch(() => false);
+
+    check(await framesArrived(A), 'the caller is receiving actual video frames');
+    check(await framesArrived(B), 'and so is the person who answered');
+
+    // Turning the camera off must not drop the call — it disables the track
+    // rather than renegotiating, which is the whole reason it is cheap.
+    await A.locator('button[aria-label="Turn camera off"]').click();
+    check(await seen(A, 'button[aria-label="Turn camera on"]', 10000),
+      'the camera toggles off');
+    // The other side must be TOLD. A disabled track keeps arriving as black
+    // frames on a live track, so without a signal the receiver cannot tell
+    // "camera off" from a call that has broken, and just shows a black screen.
+    check(await seen(B, 'text=Camera off', 10000),
+      'and the other side is told, rather than shown a black rectangle');
+    check(await A.locator('button[aria-label="Hang up"]').isVisible(),
+      'and the call is still up');
+
+    await A.locator('button[aria-label="Hang up"]').click();
+    check(await gone(B, 'button[aria-label="Hang up"]', 10000),
+      'hanging up clears both sides of a video call');
+    await A.waitForTimeout(1500);
+  }
+
+  // An audio call after a video one, because the two share a peer connection
+  // and a channel and the teardown between them is exactly where this breaks.
+  await A.locator('button[aria-label^="Call "]').first().click();
+  const audioAfterVideo = await seen(B, 'text=Incoming call', 20000);
+  check(audioAfterVideo, 'an AUDIO call still rings after a video call');
+  if (audioAfterVideo) {
+    check(!(await B.locator('text=Incoming video call').isVisible().catch(() => false)),
+      'and it is not mislabelled as video');
+    await B.locator('button[aria-label="Accept call"]').click();
+    check(await seen(A, 'button[aria-label="Mute"]', 30000), 'and it connects');
+    check(await A.locator('button[aria-label="Turn camera off"]').count() === 0,
+      'with no camera control, because there is no camera in an audio call');
+    await A.locator('button[aria-label="Hang up"]').click();
+    check(await gone(B, 'button[aria-label="Hang up"]', 10000), 'and clears');
   }
 
   console.log('\n--- 7b. A THREAD LONGER THAN THE LOAD LIMIT ---');

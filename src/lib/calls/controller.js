@@ -6,7 +6,7 @@ import { getIceConfig } from './ice';
 import { startRinging, stopRinging } from '@/lib/sound';
 
 /**
- * One-to-one calls. Audio for now; video is a later pass.
+ * One-to-one calls, audio or video.
  *
  * A singleton rather than a hook, because a call outlives any screen. It has to
  * survive navigating from the conversation to Settings, and an incoming call has
@@ -17,10 +17,16 @@ import { startRinging, stopRinging } from '@/lib/sound';
  *
  * WHAT GOES OVER THE WIRE, AND WHAT DOES NOT. Signalling — an SDP offer, an
  * answer, ICE candidates — goes through a private Supabase Realtime channel
- * (0025). The audio does NOT: once connected it flows directly between the two
+ * (0025). The media does NOT: once connected it flows directly between the two
  * browsers, and WebRTC mandates DTLS-SRTP, so a call is end-to-end encrypted
  * even though the messages in this app are not. Relayed calls are still
  * encrypted end-to-end; TURN forwards packets it cannot read.
+ *
+ * VIDEO IS DECIDED WHEN THE CALL STARTS, not during it. Turning a camera on
+ * mid-call means renegotiating the peer connection, which needs glare handling
+ * (both sides offering at once) to be safe. Within a video call the camera
+ * toggles by disabling the track, which needs no renegotiation at all. The
+ * upgrade path is noted in FOLLOWUPS §1 rather than half-built here.
  *
  * The previous CallOverlay called getUserMedia and rendered your own camera.
  * There was no peer connection, no signalling and no relay — two people "on a
@@ -40,6 +46,9 @@ let channelTopic = null;  // which conversation `channel` is joined to
 // decides whether ending a call may close the channel — see cleanup().
 let watching = false;
 let ringTimer = null;
+// One retry of the offer, and the offer being retried. See sendOffer().
+let offerRetryTimer = null;
+let lastOffer = null;
 // Candidates that arrive before setRemoteDescription cannot be added yet.
 let pendingCandidates = [];
 
@@ -85,12 +94,18 @@ function cleanup() {
   stopRinging();
   clearTimeout(ringTimer);
   ringTimer = null;
+  clearTimeout(offerRetryTimer);
+  offerRetryTimer = null;
+  lastOffer = null;
   pendingCandidates = [];
 
   if (localStream) {
     localStream.getTracks().forEach((t) => t.stop());
     localStream = null;
   }
+  // The remote stream needs no cleanup here: its tracks belong to the other
+  // side and end with the peer connection, and every path out of a call
+  // publishes a fresh state object that simply does not carry it.
   if (pc) {
     pc.onicecandidate = null;
     pc.ontrack = null;
@@ -134,10 +149,37 @@ function backToIdle() {
   );
 }
 
-async function getMicrophone() {
-  // Audio only, deliberately: video is a later pass, and asking for a camera
-  // the app will not use is the kind of permission prompt people refuse.
-  return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+/**
+ * Ask for the tracks this call needs.
+ *
+ * AN AUDIO CALL NEVER ASKS FOR THE CAMERA. Requesting a device the app will not
+ * use is the permission prompt people refuse, and refusing it once is sticky.
+ *
+ * A video call that cannot get a camera becomes an AUDIO call rather than no
+ * call at all — a laptop with a broken webcam, or a camera another app already
+ * holds, should not mean you cannot talk. The caller is told which one they got
+ * so the UI can say so instead of showing a black rectangle.
+ *
+ * @returns {Promise<{ stream: MediaStream, video: boolean }>}
+ */
+async function getMedia(wantVideo) {
+  if (!wantVideo) {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    return { stream, video: false };
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      // `ideal`, not `exact`: a device that cannot do 720p should give its best
+      // rather than throw, which `exact` would.
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
+    return { stream, video: true };
+  } catch {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    return { stream, video: false };
+  }
 }
 
 function attachRemoteAudio(stream) {
@@ -170,13 +212,22 @@ function newPeerConnection() {
   };
 
   peer.ontrack = (e) => {
-    attachRemoteAudio(e.streams[0]);
+    const stream = e.streams[0];
+    // Audio always goes to the detached element, even on a video call, so that
+    // the other person keeps talking while you navigate away from the stage.
+    // The visible <video> is muted for exactly this reason.
+    attachRemoteAudio(stream);
+    if (state.remoteStream !== stream) publish({ ...state, remoteStream: stream });
   };
 
   peer.onconnectionstatechange = () => {
     if (!pc) return;
     if (peer.connectionState === 'connected') {
       publish({ ...state, status: 'connected', since: Date.now() });
+      // The opening statement of camera state. Whoever answered may have no
+      // camera at all, and the other side has no way to know that from the SDP
+      // alone in time to draw the first frame.
+      send('camera', { on: Boolean(state.cameraOn) });
     }
     // `failed` is terminal — usually no route without a relay. `disconnected`
     // is often transient and recovers, so it is deliberately not treated as an
@@ -223,18 +274,52 @@ async function openChannel(conversationId, meId) {
   return ch;
 }
 
-/** Start an outgoing call. */
-export async function startCall({ conversationId, meId, peerName }) {
+/**
+ * Send the offer, and send it once more if nobody acknowledges it.
+ *
+ * A BROADCAST THAT ARRIVES BEFORE YOU SUBSCRIBE IS GONE. Realtime does not
+ * replay, so an offer sent in the window between the other person opening the
+ * conversation and their channel finishing its subscribe is lost in silence:
+ * their phone never rings, yours rings out, and nothing anywhere reports an
+ * error. Found while screenshotting a video call — the caller's stage said
+ * "Ringing…" against a callee who had no idea.
+ *
+ * The fix is an acknowledgement rather than a longer timeout. The callee sends
+ * `ringing` the moment it starts ringing; if that has not arrived in two
+ * seconds the offer goes again, once. A duplicate offer is harmless because
+ * onSignal treats a repeat of the offer it is already ringing on as another
+ * chance to acknowledge, not as a second call.
+ */
+function sendOffer(sdp, video) {
+  lastOffer = { sdp, video };
+  send('offer', { sdp, video });
+
+  clearTimeout(offerRetryTimer);
+  offerRetryTimer = setTimeout(() => {
+    if (state.status !== 'calling' || !lastOffer) return;
+    send('offer', { sdp: lastOffer.sdp, video: lastOffer.video, retry: true });
+  }, 2000);
+}
+
+/** Start an outgoing call. `video: true` makes it a video call. */
+export async function startCall({ conversationId, meId, peerName, video = false }) {
   if (state.status !== 'idle') return;
 
-  publish({ status: 'calling', conversationId, meId, peerName, outgoing: true });
+  publish({ status: 'calling', conversationId, meId, peerName, outgoing: true, video });
 
+  let gotVideo = false;
   try {
-    localStream = await getMicrophone();
+    const media = await getMedia(video);
+    localStream = media.stream;
+    gotVideo = media.video;
   } catch {
     publish({ status: 'error', reason: 'no-microphone', peerName });
     return;
   }
+
+  // `video` is what was asked for; `gotVideo` is what the device gave. They
+  // differ when a camera is missing or refused, and the UI shows the second.
+  publish({ ...state, video: gotVideo, cameraOn: gotVideo, localStream });
 
   try {
     channel = await openChannel(conversationId, meId);
@@ -243,7 +328,9 @@ export async function startCall({ conversationId, meId, peerName }) {
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    send('offer', { sdp: offer });
+    // The flag rides along so the other phone can say "Incoming video call"
+    // before anyone has answered. The SDP knows too, but not until it is parsed.
+    sendOffer(offer, gotVideo);
     // Ringback: your own phone telling you it is trying. Started only after the
     // offer is actually sent, so it never rings for a call that failed to leave.
     startRinging('outgoing');
@@ -261,14 +348,23 @@ export async function acceptCall() {
   stopRinging();
   clearTimeout(ringTimer);
 
+  let gotVideo = false;
   try {
-    localStream = await getMicrophone();
+    const media = await getMedia(Boolean(state.video));
+    localStream = media.stream;
+    gotVideo = media.video;
   } catch {
     send('decline');
     cleanup();
     publish({ status: 'error', reason: 'no-microphone', peerName: state.peerName });
     return;
   }
+
+  // ASYMMETRIC ON PURPOSE. `state.video` stays true if they called with video,
+  // even when this side has no camera — they keep sending, we keep receiving,
+  // and only `cameraOn` goes false. A call where one person is visible is worth
+  // more than one that refuses to connect.
+  publish({ ...state, cameraOn: gotVideo, localStream });
 
   try {
     pc = newPeerConnection();
@@ -327,6 +423,84 @@ export function toggleMute() {
 }
 
 /**
+ * Turn your camera off and on inside a video call.
+ *
+ * `enabled = false` rather than stopping the track: a stopped track cannot be
+ * restarted, and replacing it would mean renegotiating. Disabled, the sender
+ * keeps its place in the SDP and transmits black — the other side sees the
+ * stream go dark, which is what "camera off" should look like.
+ */
+export function toggleCamera() {
+  if (!localStream) return;
+  const track = localStream.getVideoTracks()[0];
+  if (!track) return;
+  track.enabled = !track.enabled;
+  // TELL THEM, because a disabled track still arrives — as black frames on a
+  // live track. The receiver cannot tell that apart from a dark room or a
+  // frozen stream, so without this, turning your camera off looks to the other
+  // person exactly like the call breaking.
+  send('camera', { on: track.enabled });
+  publish({ ...state, cameraOn: track.enabled });
+}
+
+/**
+ * Front camera to back camera and back again.
+ *
+ * `replaceTrack` swaps what a sender transmits WITHOUT renegotiating, which is
+ * the only reason this is cheap enough to include. The old track is stopped
+ * after the swap, not before — stopping first leaves a visible gap, and if
+ * getUserMedia then fails there is nothing to fall back to.
+ */
+export async function switchCamera() {
+  if (!pc || !localStream) return;
+  const current = localStream.getVideoTracks()[0];
+  if (!current) return;
+
+  const facing = current.getSettings().facingMode === 'environment' ? 'user' : 'environment';
+
+  let replacement;
+  try {
+    replacement = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing },
+      audio: false,
+    });
+  } catch {
+    return; // One camera, or it is busy. Staying put is the right failure.
+  }
+
+  const next = replacement.getVideoTracks()[0];
+  const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+  if (!sender || !next) {
+    replacement.getTracks().forEach((t) => t.stop());
+    return;
+  }
+
+  try {
+    await sender.replaceTrack(next);
+  } catch {
+    replacement.getTracks().forEach((t) => t.stop());
+    return;
+  }
+
+  next.enabled = current.enabled;
+  localStream.removeTrack(current);
+  current.stop();
+  localStream.addTrack(next);
+  publish({ ...state, facing });
+}
+
+/** Whether this device has more than one camera, so the UI can hide a dead button. */
+export async function hasMultipleCameras() {
+  if (!navigator.mediaDevices?.enumerateDevices) return false;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === 'videoinput').length > 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Incoming signalling.
  *
  * `broadcast: { self: false }` means our own messages never come back, so
@@ -337,9 +511,16 @@ async function onSignal(payload, meId) {
 
   switch (payload.type) {
     case 'offer': {
+      // The retry landing on a call we are already ringing for. Acknowledge it
+      // again — the first ack is what may have been lost — and otherwise leave
+      // everything alone, or the ringtone restarts and a second timeout stacks.
+      if (state.status === 'ringing') {
+        send('ringing');
+        return;
+      }
       // Already busy: refuse rather than silently dropping it, so the caller
       // learns something instead of ringing out.
-      if (state.status !== 'idle' && state.status !== 'ringing') {
+      if (state.status !== 'idle') {
         send('decline');
         return;
       }
@@ -350,16 +531,34 @@ async function onSignal(payload, meId) {
         peerName: state.peerName,
         offer: payload.sdp,
         outgoing: false,
+        video: Boolean(payload.video),
       });
       startRinging('incoming');
+      // Tells the caller their offer landed. Without it they cannot tell a
+      // phone that is ringing from one that never heard them.
+      send('ringing');
       ringTimer = setTimeout(() => {
         if (state.status === 'ringing') declineCall();
       }, RING_TIMEOUT_MS);
       break;
     }
 
+    case 'camera': {
+      publish({ ...state, peerCameraOn: Boolean(payload.on) });
+      break;
+    }
+
+    case 'ringing': {
+      // Their phone is ringing, so the offer does not need repeating.
+      clearTimeout(offerRetryTimer);
+      offerRetryTimer = null;
+      break;
+    }
+
     case 'answer': {
       stopRinging();
+      clearTimeout(offerRetryTimer);
+      offerRetryTimer = null;
       // `stable` means an answer has already been applied. With the channel
       // guard above this should not happen; ignoring it costs nothing and an
       // uncaught throw in a signalling handler kills the rest of the call.
