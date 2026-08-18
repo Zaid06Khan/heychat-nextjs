@@ -610,14 +610,24 @@ try {
     check(await seen(B, 'button[aria-label="Turn camera off"]', 15000),
       'and so does the person who answered');
 
-    const framesArrived = async (page) =>
+    // THE REMOTE ELEMENT SPECIFICALLY, AND VISIBLY.
+    //
+    // This used to query every <video> on the page and accept any of them
+    // having frames — which the LOCAL preview always does, since it is your own
+    // camera. So it passed while the remote video was hidden behind the
+    // placeholder, and reported that video worked when it did not. A
+    // display:none video still decodes and still reports videoWidth, so the
+    // visibility check is not redundant.
+    const remoteFramesVisible = async (page) =>
       page.waitForFunction(() => {
-        const vids = [...document.querySelectorAll('video')];
-        return vids.some((v) => v.videoWidth > 0 && v.videoHeight > 0);
+        const v = document.querySelector('video[data-remote-video]');
+        return Boolean(v && v.videoWidth > 0 && v.videoHeight > 0 && v.offsetParent !== null);
       }, undefined, { timeout: 30000 }).then(() => true).catch(() => false);
 
-    check(await framesArrived(A), 'the caller is receiving actual video frames');
-    check(await framesArrived(B), 'and so is the person who answered');
+    check(await remoteFramesVisible(A),
+      'the caller can SEE the other person, not just hear them');
+    check(await remoteFramesVisible(B),
+      'and so can the person who answered');
 
     // Turning the camera off must not drop the call — it disables the track
     // rather than renegotiating, which is the whole reason it is cheap.
@@ -653,6 +663,53 @@ try {
     await A.locator('button[aria-label="Hang up"]').click();
     check(await gone(B, 'button[aria-label="Hang up"]', 10000), 'and clears');
   }
+
+  console.log('\n--- 7e. A VIDEO CALL WHERE ONE CAMERA WILL NOT OPEN ---');
+  // The likeliest real-world shape of "video calls do not work": one side's
+  // camera is missing, in use by another app, or was refused once and is now
+  // remembered as denied. It used to collapse the WHOLE call to audio — the
+  // person without a camera could not see the person who had one, because the
+  // offer carried no video m-line for them to answer into.
+  //
+  // Simulated by making getUserMedia refuse video on B only. Everything else is
+  // the real path: real permission logic, real SDP, real peer connection.
+  await B.evaluate(() => {
+    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    window.__realGUM = real;
+    navigator.mediaDevices.getUserMedia = (c) =>
+      c && c.video
+        ? Promise.reject(new DOMException('Requested device not found', 'NotFoundError'))
+        : real(c);
+  });
+
+  await A.locator('button[aria-label^="Video call "]').first().click();
+  const rungNoCam = await seen(B, 'text=Incoming video call', 20000);
+  check(rungNoCam, 'the call still rings as a video call');
+
+  if (rungNoCam) {
+    await B.locator('button[aria-label="Accept call"]').click();
+    check(await seen(A, 'button[aria-label="Hang up"]', 30000), 'and it connects');
+
+    // The whole point. B has no camera and must still SEE A.
+    check(
+      await B.waitForFunction(() => {
+        const v = document.querySelector('video[data-remote-video]');
+        return Boolean(v && v.videoWidth > 0 && v.offsetParent !== null);
+      }, undefined, { timeout: 30000 }).then(() => true).catch(() => false),
+      'the person with no camera can still SEE the person who has one'
+    );
+
+    check(await seen(B, "text=Your camera isn't available", 10000),
+      'and is told why they are not being seen, rather than left guessing');
+
+    await A.locator('button[aria-label="Hang up"]').click();
+    check(await gone(B, 'button[aria-label="Hang up"]', 10000), 'and it clears');
+  }
+
+  await B.evaluate(() => {
+    if (window.__realGUM) navigator.mediaDevices.getUserMedia = window.__realGUM;
+  });
+  await A.waitForTimeout(1500);
 
   console.log('\n--- 7b. A THREAD LONGER THAN THE LOAD LIMIT ---');
   // ChatView loads 200 messages. It used to take them ASCENDING, which is the

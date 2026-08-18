@@ -212,12 +212,23 @@ function newPeerConnection() {
   };
 
   peer.ontrack = (e) => {
-    const stream = e.streams[0];
+    const stream = e.streams[0] || new MediaStream([e.track]);
     // Audio always goes to the detached element, even on a video call, so that
     // the other person keeps talking while you navigate away from the stage.
     // The visible <video> is muted for exactly this reason.
     attachRemoteAudio(stream);
-    if (state.remoteStream !== stream) publish({ ...state, remoteStream: stream });
+
+    // PUBLISH EVERY TIME, NOT ONLY FOR A NEW STREAM. `ontrack` fires once per
+    // track and both tracks arrive on the SAME stream object, so guarding on
+    // identity meant the video track's arrival published nothing at all: React
+    // never re-rendered, and the stage kept showing the placeholder it had
+    // drawn when only the audio track existed. The call carried video the
+    // whole time and looked, to both people, like an audio call.
+    publish({
+      ...state,
+      remoteStream: stream,
+      remoteHasVideo: stream.getVideoTracks().length > 0,
+    });
   };
 
   peer.onconnectionstatechange = () => {
@@ -317,20 +328,40 @@ export async function startCall({ conversationId, meId, peerName, video = false 
     return;
   }
 
-  // `video` is what was asked for; `gotVideo` is what the device gave. They
-  // differ when a camera is missing or refused, and the UI shows the second.
-  publish({ ...state, video: gotVideo, cameraOn: gotVideo, localStream });
+  // `video` is what was asked for; `gotVideo` is what the device gave.
+  //
+  // THE CALL STAYS A VIDEO CALL EVEN WHEN THIS CAMERA FAILED. Setting
+  // `video: gotVideo` here dropped the whole call back to the audio bar, so a
+  // camera that would not open meant you could not SEE THE OTHER PERSON
+  // either — their video was arriving and nothing rendered it. What a missing
+  // camera costs is your own picture, and nothing else.
+  publish({
+    ...state,
+    video,
+    cameraOn: gotVideo,
+    cameraAvailable: gotVideo,
+    localStream,
+  });
 
   try {
     channel = await openChannel(conversationId, meId);
     pc = newPeerConnection();
     localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
 
+    // THE OFFER DECIDES WHAT THE CALL CAN CARRY. An answer cannot introduce a
+    // media kind the offer never mentioned, so with no camera here there would
+    // be no video m-line, and the other person's camera would be unusable too
+    // — one broken webcam turning a video call into an audio call for both.
+    // `recvonly` says: I have nothing to send, but send me yours.
+    if (video && !gotVideo) {
+      pc.addTransceiver('video', { direction: 'recvonly' });
+    }
+
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     // The flag rides along so the other phone can say "Incoming video call"
     // before anyone has answered. The SDP knows too, but not until it is parsed.
-    sendOffer(offer, gotVideo);
+    sendOffer(offer, video);
     // Ringback: your own phone telling you it is trying. Started only after the
     // offer is actually sent, so it never rings for a call that failed to leave.
     startRinging('outgoing');
@@ -364,7 +395,7 @@ export async function acceptCall() {
   // even when this side has no camera — they keep sending, we keep receiving,
   // and only `cameraOn` goes false. A call where one person is visible is worth
   // more than one that refuses to connect.
-  publish({ ...state, cameraOn: gotVideo, localStream });
+  publish({ ...state, cameraOn: gotVideo, cameraAvailable: gotVideo, localStream });
 
   try {
     pc = newPeerConnection();

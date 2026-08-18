@@ -124,6 +124,32 @@ an offer with `ringing`, and an unacknowledged offer is sent once more after two
 seconds. A repeat offer on a call already ringing re-acknowledges rather than
 starting a second ringtone.
 
+**Video "worked" and looked like an audio call, fixed 2026-08-18.** Reported
+from a real device the same day it shipped. Three faults, each enough on its own:
+
+- **`ontrack` published only for a NEW stream.** It fires once per track and
+  both tracks arrive on the same stream object, so the video track's arrival
+  published nothing — React never re-rendered and the stage kept the
+  placeholder it drew when only audio existed. The video was arriving the whole
+  time with nothing to paint it.
+- **A camera that would not open collapsed the whole call to audio.**
+  `startCall` set `video: gotVideo`, so a refused or busy camera dropped you
+  back to the audio bar — and you could not see THEM either. Worse, with no
+  local video track the offer carried no video m-line, and an answer cannot
+  introduce one, so their camera became unusable too. A video call now stays a
+  video call and adds a `recvonly` transceiver when this side has nothing to
+  send. One broken webcam costs your own picture and nothing else.
+- **The fallback was silent.** No message said the camera had not opened, so it
+  read as the feature being broken. The stage says so now.
+
+**The test that should have caught this asserted the wrong thing.** It queried
+every `<video>` on the page and accepted any of them having frames — and the
+LOCAL preview always does, because it is your own camera. It passed while the
+remote video sat hidden behind the placeholder. It now checks
+`video[data-remote-video]` specifically, and that it is actually visible: a
+`display:none` video still decodes and still reports `videoWidth`, so the
+visibility check is doing real work. §7e drives the no-camera path end to end.
+
 ### Still open
 
 - **No TURN relay yet.** Roughly 15–20% of connections cannot go peer-to-peer —

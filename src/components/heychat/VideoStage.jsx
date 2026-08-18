@@ -76,8 +76,11 @@ export default function VideoStage({ call }) {
   // Two conditions, and the second is the one that matters. A track stays
   // `live` when the sender disables it — it just carries black — so the pixels
   // cannot tell you the camera is off. `peerCameraOn` is what they told us.
-  const hasRemoteVideo =
-    call.remoteStream && call.remoteStream.getVideoTracks().some((t) => t.readyState === 'live');
+  const hasRemoteVideo = Boolean(
+    call.remoteHasVideo &&
+      call.remoteStream &&
+      call.remoteStream.getVideoTracks().some((t) => t.readyState === 'live')
+  );
   const remoteVideoLive = hasRemoteVideo && call.peerCameraOn !== false;
 
   const label =
@@ -94,6 +97,7 @@ export default function VideoStage({ call }) {
       <div className="relative flex-1 min-h-0">
         <video
           ref={remoteRef}
+          data-remote-video
           autoPlay
           playsInline
           muted
@@ -114,6 +118,18 @@ export default function VideoStage({ call }) {
           </div>
         )}
 
+        {/* A camera that would not open is worth SAYING. The call still works
+            and you can still see them, but silently sending nothing looks
+            exactly like the feature being broken. */}
+        {call.cameraAvailable === false && (
+          <div className="absolute bottom-4 left-4 right-4 sm:right-auto sm:max-w-xs">
+            <p className="text-xs text-background bg-foreground/80 border border-background/30 rounded-xl px-3 py-2">
+              Your camera isn&apos;t available, so they can&apos;t see you. You
+              can still see and hear them.
+            </p>
+          </div>
+        )}
+
         {/* Name and duration, over the video. */}
         <div className="absolute top-0 inset-x-0 p-4 bg-gradient-to-b from-foreground/70 to-transparent">
           <p className="text-background font-bold truncate">{who}</p>
@@ -126,6 +142,7 @@ export default function VideoStage({ call }) {
           <div className="absolute bottom-4 right-4 w-28 sm:w-36 aspect-[3/4] rounded-2xl overflow-hidden border-2 border-background/70 shadow-pop">
             <video
               ref={localRef}
+              data-local-video
               autoPlay
               playsInline
               muted
@@ -148,10 +165,11 @@ export default function VideoStage({ call }) {
 
         <button
           onClick={toggleCamera}
+          disabled={call.cameraAvailable === false}
           aria-label={call.cameraOn ? 'Turn camera off' : 'Turn camera on'}
           className={`w-14 h-14 rounded-full border-2 border-background/40 flex items-center justify-center transition ${
             call.cameraOn ? 'bg-background/15 text-background' : 'bg-background text-foreground'
-          }`}
+          } ${call.cameraAvailable === false ? 'opacity-40' : ''}`}
         >
           {call.cameraOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
         </button>
