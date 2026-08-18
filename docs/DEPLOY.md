@@ -1,4 +1,4 @@
-# Deploying Calamuse to Vercel
+# Deploying Calamus3 to Vercel
 
 Written 2026-08-16. The repo is prepared; the steps below need your accounts, so
 they have to be run by you.
@@ -56,7 +56,7 @@ vercel env add SUPABASE_SERVICE_ROLE_KEY production
 ```
 
 > **`HEYCHAT_SYNTHETIC_EMAIL_DOMAIN` keeps its old value even though the app is
-> now called Calamuse.** Every account's auth user is keyed by
+> now called Calamus3.** Every account's auth user is keyed by
 > `<username>@<that domain>`, and login re-derives that address to find them.
 > Change it and every existing account becomes unreachable — not by password,
 > not by recovery phrase, because neither is what the lookup uses. See the note

@@ -1,6 +1,6 @@
 /* eslint-disable no-undef */
 /**
- * Calamuse service worker — notifications only.
+ * Calamus3 service worker — notifications only.
  *
  * Deliberately NOT an offline cache. Caching a messaging app's shell is easy to
  * get wrong in a way that serves users a stale build for weeks, and offline
@@ -33,7 +33,7 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const title = payload.title || 'Calamuse';
+  const title = payload.title || 'Calamus3';
   const conversationId = payload.conversationId || null;
 
   event.waitUntil(showUnlessAlreadyLooking(title, payload, conversationId));

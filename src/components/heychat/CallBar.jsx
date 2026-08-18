@@ -16,7 +16,7 @@ import { hasTurn } from '@/lib/calls/ice';
 const REASONS = {
   declined: 'Call declined',
   'no-answer': 'No answer',
-  'no-microphone': 'Calamuse could not use your microphone',
+  'no-microphone': 'Calamus3 could not use your microphone',
   'failed-to-start': 'Could not start the call',
   'failed-to-answer': 'Could not answer the call',
   failed: 'The call could not connect',

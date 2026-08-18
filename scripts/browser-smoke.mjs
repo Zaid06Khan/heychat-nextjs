@@ -58,6 +58,14 @@ const userA = `pw_a_${stamp}`;
 const userB = `pw_b_${stamp}`;
 const userM = `pw_m_${stamp}`;
 const userN = `pw_n_${stamp}`;
+const userC = `pw_c_${stamp}`;
+
+// A real 1x1 PNG. setInputFiles takes a buffer, and the upload path checks the
+// MIME type, so an arbitrary blob would be rejected for the wrong reason.
+const PNG_1PX = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64'
+);
 
 // Everything created here gets deleted in the finally block. Tracked in a list
 // because the mobile pass creates a second pair of its own — not because it has
@@ -259,7 +267,7 @@ try {
   await A.fill('input[placeholder="Search by username..."]', userB);
   check(await seen(A, `text=@${userB}`), 'A can find B by username search');
   await A.locator('button:has-text("Add")').first().click();
-  check(await seen(A, 'text=Sent'), 'the request is sent');
+  check(await seen(A, 'text=Requested'), 'the request is sent');
 
   await B.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
   await B.locator('button:has-text("Requests")').click();
@@ -773,6 +781,130 @@ try {
   await M.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
   await seen(M, 'input[placeholder="Search by username..."]');
   await noOverflow(M, '/contacts');
+
+  console.log('\n--- 10. A SENT REQUEST SURVIVES SIGNING OUT ---');
+  // The bug: "Sent" was React state, so it lived exactly as long as the page.
+  // Sign out, sign back in, and every request you had ever sent read as though
+  // it had been cancelled — and pressing Add again did nothing at all, because
+  // sendRequest found the existing row and returned without a word.
+  const ctxC = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const C = await ctxC.newPage();
+  watchConsole(C, 'C');
+  // Tracked BEFORE registering, so a run that dies mid-section still cleans up.
+  createdUsers.push(userC);
+  await register(C, userC);
+
+  await A.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
+  await A.fill('input[placeholder="Search by username..."]', userC);
+  check(await seen(A, `text=@${userC}`), 'A can find C by username search');
+  await A.locator(`button[aria-label="Send a contact request to ${userC}"]`).click();
+  check(await seen(A, 'text=Requested'), 'the button turns into "Requested"');
+
+  // The whole point: a different session, on the same account.
+  await A.goto(`${APP}/settings`, { waitUntil: 'domcontentloaded' });
+  await A.locator('button:has-text("Log out")').click();
+  await A.waitForURL((u) => !u.pathname.startsWith('/settings'), { timeout: 15000 });
+
+  await A.goto(`${APP}/login`, { waitUntil: 'domcontentloaded' });
+  // The real input is sr-only with a styled box drawn over it, so clicking the
+  // input directly is intercepted — exactly as it would be for a mouse. Click
+  // the label, which is what a person does and what the markup is built for.
+  const setRemember = async (page, on) => {
+    const box = page.locator('input[type="checkbox"]');
+    if ((await box.isChecked()) === on) return;
+    await page.locator('label:has-text("Remember my username")').click();
+  };
+  check(await seen(A, 'input[type="checkbox"]', 15000),
+    'the login screen offers to remember the username');
+  await setRemember(A, true);
+  await A.fill('input[type="text"]', userA);
+  await A.fill('input[type="password"]', PW);
+  await A.click('button[type="submit"]');
+  await A.waitForURL(/\/home/, { timeout: 20000 });
+  check(true, 'A signs back in');
+
+  await A.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
+  await A.locator('button:has-text("Requests")').click();
+  check(await seen(A, 'text=Sent · waiting for a reply'),
+    'the request A sent is still listed after signing back in');
+  check(await seen(A, `text=@${userC}`), 'and it names the person it was sent to');
+
+  // And the search agrees with the database rather than with this page's memory.
+  await A.fill('input[placeholder="Search by username..."]', userC);
+  check(await seen(A, 'text=Requested'),
+    'searching for them again still says "Requested", not "Add"');
+  check(await A.locator(`button[aria-label="Send a contact request to ${userC}"]`).count() === 0,
+    'so there is no Add button to press a second time');
+
+  console.log('\n--- 10b. REMEMBER MY USERNAME ---');
+  await A.goto(`${APP}/settings`, { waitUntil: 'domcontentloaded' });
+  await A.locator('button:has-text("Log out")').click();
+  await A.waitForURL((u) => !u.pathname.startsWith('/settings'), { timeout: 15000 });
+  await A.goto(`${APP}/login`, { waitUntil: 'domcontentloaded' });
+  // Prefilled from the previous sign-in, which is the only place it is written
+  // — a failed login must not remember a typo.
+  await A.waitForFunction(
+    (name) => document.querySelector('input[type="text"]')?.value === name,
+    userA,
+    { timeout: 10000 }
+  ).then(() => true).catch(() => false);
+  const prefilled = await A.locator('input[type="text"]').inputValue();
+  check(prefilled === userA, 'the username is prefilled on the next visit', prefilled);
+  check(await A.locator('input[type="password"]').inputValue() === '',
+    'and the password is NOT remembered');
+
+  // Unticking has to actually forget, or the box is decoration.
+  await setRemember(A, false);
+  await A.fill('input[type="password"]', PW);
+  await A.click('button[type="submit"]');
+  await A.waitForURL(/\/home/, { timeout: 20000 });
+  await A.goto(`${APP}/settings`, { waitUntil: 'domcontentloaded' });
+  await A.locator('button:has-text("Log out")').click();
+  await A.waitForURL((u) => !u.pathname.startsWith('/settings'), { timeout: 15000 });
+  await A.goto(`${APP}/login`, { waitUntil: 'domcontentloaded' });
+  await A.waitForTimeout(500);
+  check(await A.locator('input[type="text"]').inputValue() === '',
+    'unticking the box forgets the username');
+
+  console.log('\n--- 10c. A PROFILE PHOTO APPEARS WHEN YOU PICK IT ---');
+  // It did not. The stored value is a private storage key, and /api/media/sign
+  // refuses to sign a key that no account lists as its avatar yet — so between
+  // picking a photo and saving it, there was nothing renderable, and the
+  // initial stayed put. It looked like the upload had silently failed.
+  await A.fill('input[type="text"]', userA);
+  await A.fill('input[type="password"]', PW);
+  await A.click('button[type="submit"]');
+  await A.waitForURL(/\/home/, { timeout: 20000 });
+
+  await A.goto(`${APP}/profile`, { waitUntil: 'domcontentloaded' });
+  // Attached, not visible: the input is deliberately hidden behind the camera
+  // button, which is what a person actually clicks.
+  await A.waitForSelector('input[type="file"]', { state: 'attached', timeout: 15000 });
+  check(await A.locator('input[type="file"]').count() === 1,
+    'the profile screen offers a photo picker');
+  check(await A.locator('img').count() === 0, 'no photo to begin with — just the initial');
+
+  await A.setInputFiles('input[type="file"]', {
+    name: 'avatar.png',
+    mimeType: 'image/png',
+    buffer: PNG_1PX,
+  });
+  check(await seen(A, 'img', 15000), 'the photo appears immediately after picking it');
+
+  // Saved on pick, not on "Save Changes" — so it is there on the next visit,
+  // and everywhere else in the app, without a second deliberate step.
+  //
+  // WAIT FOR THE SAVE, don't just reload. The preview appears from the local
+  // file the instant you pick it, which is well before the upload and the
+  // account update have finished — reloading on the preview cancels both, and
+  // the test then blames the app for losing a photo the test threw away.
+  check(await gone(A, '[aria-label="Uploading photo"]', 30000),
+    'the upload finishes');
+  await A.reload({ waitUntil: 'domcontentloaded' });
+  const survived = await seen(A, 'img', 20000);
+  check(survived, 'and it is still there after a reload, so it really was saved');
+
+  await ctxC.close();
 
   console.log('\n--- 8. CONSOLE ---');
   // Push failures are expected here — headless Chromium has no push service —

@@ -11,6 +11,13 @@ export default function Profile() {
   const [avatar, setAvatar] = useState('');
   const [saving, setSaving] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState('');
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+
+  // Object URLs are held by the browser until revoked, so a session of trying
+  // photos would leak every one of them.
+  useEffect(() => () => { if (avatarPreview) URL.revokeObjectURL(avatarPreview); }, [avatarPreview]);
 
   useEffect(() => {
     (async () => {
@@ -22,11 +29,54 @@ export default function Profile() {
     })();
   }, []);
 
+  // A photo is stored as a private storage KEY, and /api/media/sign will only
+  // sign a key that some account already lists as its avatar. So a picked photo
+  // is unrenderable until it has been saved — which is why picking one used to
+  // do nothing visible at all. Two changes fix that: show the local file
+  // immediately, and save it immediately rather than waiting for "Save Changes".
+  const MAX_AVATAR_BYTES = 8 * 1024 * 1024;
+
   const handleAvatarUpload = async (e) => {
     const file = e.target.files?.[0];
+    // Clear the input so choosing the SAME file again still fires a change.
+    e.target.value = '';
     if (!file) return;
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
-    setAvatar(file_url);
+
+    setAvatarError('');
+
+    if (!file.type.startsWith('image/')) {
+      setAvatarError('That file is not an image.');
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setAvatarError('That photo is larger than 8 MB. Try a smaller one.');
+      return;
+    }
+
+    const localUrl = URL.createObjectURL(file);
+    setAvatarPreview((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return localUrl;
+    });
+    setAvatarBusy(true);
+
+    try {
+      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      await base44.entities.Account.update(account.id, { avatar: file_url });
+      setAvatar(file_url);
+      setAccount((a) => (a ? { ...a, avatar: file_url } : a));
+    } catch (err) {
+      console.error(err);
+      setAvatarError('That photo could not be uploaded. Please try again.');
+      // Drop the preview, so the avatar reflects what is actually stored rather
+      // than a picture that only exists in this tab.
+      setAvatarPreview((old) => {
+        if (old) URL.revokeObjectURL(old);
+        return '';
+      });
+    } finally {
+      setAvatarBusy(false);
+    }
   };
 
   const handleSave = async () => {
@@ -48,7 +98,7 @@ export default function Profile() {
   const handleShare = async () => {
     const link = `${window.location.origin}/?ref=${account.username}`;
     if (navigator.share) {
-      try { await navigator.share({ title: 'Calamuse', text: `Connect with me on Calamuse: @${account.username}`, url: link }); } catch {}
+      try { await navigator.share({ title: 'Calamus3', text: `Connect with me on Calamus3: @${account.username}`, url: link }); } catch {}
     } else {
       try { await navigator.clipboard.writeText(link); alert('Profile link copied to clipboard!'); } catch { alert(link); }
     }
@@ -71,13 +121,25 @@ export default function Profile() {
       </div>
       <div className="p-6 flex flex-col items-center max-w-2xl mx-auto w-full">
         <div className="relative">
-          <Avatar src={avatar} name={displayName || account.username} size={100} />
+          <Avatar src={avatar} name={displayName || account.username} size={100} previewUrl={avatarPreview} />
+          {avatarBusy && (
+            <div
+              role="status"
+              aria-label="Uploading photo"
+              className="absolute inset-0 rounded-full bg-foreground/40 flex items-center justify-center"
+            >
+              <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
           <label className="absolute bottom-0 right-0 w-8 h-8 rounded-full gradient-bg flex items-center justify-center cursor-pointer border-2 border-background">
             <Camera className="w-4 h-4 text-white" />
             <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
           </label>
         </div>
         <p className="text-xs text-muted-foreground mt-2">@{account.username}</p>
+        {avatarError && (
+          <p className="text-xs text-destructive mt-2 text-center">{avatarError}</p>
+        )}
       </div>
       <div className="px-4 pb-8 space-y-4 max-w-2xl mx-auto w-full">
         <div>

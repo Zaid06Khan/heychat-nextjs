@@ -1,7 +1,7 @@
-# Calamuse
+# Calamus3
 
-Self-hosted port of the Base44 HeyChat prototype, renamed **Calamuse** on
-2026-08-16. Next.js 15 (App Router) + React 19,
+Self-hosted port of the Base44 HeyChat prototype. Renamed HeyChat -> Calamuse on
+2026-08-16, then **Calamuse -> Calamus3 on 2026-08-18**. Next.js 15 (App Router) + React 19,
 Supabase for Postgres / Auth / Storage / Realtime, Tailwind + shadcn on Radix.
 
 The app is still a **React Router SPA** mounted by a catch-all route (`ssr: false`).
@@ -31,7 +31,7 @@ npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
 npm run test:e2e -- http://localhost:3000       # 117 assertions, backend boundaries
-npm run test:browser -- http://localhost:3000   # 64 assertions, real UI, 2 contexts
+npm run test:browser -- http://localhost:3000   # 92 assertions, real UI, 3 contexts
 npm run db:plan        # migrations in order — needs no database
 npm run db:status      # what is applied, what is pending
 npm run push:keys      # print VAPID env lines
@@ -54,14 +54,31 @@ npm run push:test -- <username>
 - **`0004_grants.sql` is not optional.** Without it you get
   `42501 permission denied for table accounts` before RLS is even consulted.
 - **The `testbuddy` account and its conversation are deliberate.** Do not clean them up.
-- **Registration is rate limited to 20/hour/IP**, and `test:browser` creates four
-  accounts per run — roughly five runs an hour before 429s. Counters are in process
-  memory, so restarting the dev server clears them.
+- **Registration is rate limited to 20/hour/IP**, and `test:browser` creates five
+  accounts per run — four runs an hour before 429s. Counters are in process
+  memory, so restarting the dev server clears them. Any new account a test creates
+  must be pushed onto `createdUsers` or it is never deleted; three leaked that way
+  the first time §10 was added.
 - **Two suite runs back-to-back can flake.** Not a rate limit — every
   `POST /api/messages` returns 200 and the UI still misses the message, because
   `ChatView` has no optimistic append and waits on realtime. Restart the dev server
   and re-run before believing a send failure. (Signing an existing account into a
   differently-sized context used to be impossible; since §6 it works fine.)
+
+## Renaming the app is not a global find-and-replace
+
+Three identifiers keep the OLD spelling on purpose, and each one breaks something
+silent if changed:
+
+- **`HEYCHAT_SYNTHETIC_EMAIL_DOMAIN` / `accounts.heychat.invalid`** — every
+  account's GoTrue user is keyed by `<username>@<domain>` and login re-derives
+  it. Changing it makes every existing account unreachable by password *and* by
+  recovery phrase.
+- **`calamuse_sound_enabled`** (localStorage) — renaming it silently resets the
+  preference of everyone who had turned sound off, which is the only group that
+  would notice.
+- **`calamuse_call_receive` / `calamuse_call_send`** (0025) — editing an applied
+  migration changes its checksum, and `migrate.mjs` will refuse the tree.
 
 ## Layout
 

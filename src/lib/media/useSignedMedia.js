@@ -53,6 +53,17 @@ async function fetchSigned(cacheKey, payload) {
 }
 
 /**
+ * Drop every signed URL held in memory.
+ *
+ * Only the URLs, not the images — the browser's own HTTP cache holds those and
+ * no script can evict it. What this does buy is that the next render asks the
+ * server again, which is what "clear cached data" should mean.
+ */
+export function clearSignedMediaCache() {
+  cache.clear();
+}
+
+/**
  * @param {{ messageId?: string, key?: string }} target
  * @returns {{ url: string|null, loading: boolean, failed: boolean }}
  */

@@ -29,12 +29,12 @@ const body = Plus_Jakarta_Sans({
 });
 
 export const metadata = {
-  title: 'Calamuse',
+  title: 'Calamus3',
   description: 'Private messaging. No phone number. No email. Just you.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    title: 'Calamuse',
+    title: 'Calamus3',
     statusBarStyle: 'default',
   },
 };

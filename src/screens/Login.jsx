@@ -1,8 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { login, getSession } from '@/lib/heychatAuth';
-import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, Check } from 'lucide-react';
 import Logo from '@/components/heychat/Logo';
+
+/**
+ * The username only. Never the password.
+ *
+ * This is a convenience for a device you already trust, and it is worth being
+ * clear about what it is not: there is no "stay signed in" here, because the
+ * session cookie already does that. All this removes is retyping a name.
+ *
+ * Storing the password would be a different thing entirely — it would put a
+ * reusable credential in localStorage, readable by any script that ever runs on
+ * this origin, for an account whose ONLY recovery path is a recovery password.
+ */
+const REMEMBER_KEY = 'calamus3_remembered_username';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -10,7 +23,22 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [remember, setRemember] = useState(false);
   const navigate = useNavigate();
+
+  // In an effect, not as an initialiser: this component renders on the server
+  // during the SPA's first paint, where localStorage does not exist.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(REMEMBER_KEY);
+      if (saved) {
+        setUsername(saved);
+        setRemember(true);
+      }
+    } catch {
+      // Private mode, or storage disabled. Nothing to restore.
+    }
+  }, []);
 
   if (getSession()) return <Navigate to="/home" replace />;
 
@@ -19,7 +47,16 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login({ username: username.trim(), password });
+      const name = username.trim();
+      await login({ username: name, password });
+      // Only after a login that actually worked — otherwise a typo gets
+      // remembered and helpfully retyped for you every time.
+      try {
+        if (remember) localStorage.setItem(REMEMBER_KEY, name);
+        else localStorage.removeItem(REMEMBER_KEY);
+      } catch {
+        // Not being able to remember is not a reason to fail the login.
+      }
       navigate('/home');
     } catch (err) {
       setError(err.message);
@@ -68,6 +105,23 @@ export default function Login() {
               </button>
             </div>
           </div>
+          <label className="flex items-center gap-2.5 cursor-pointer select-none w-fit">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span
+              aria-hidden="true"
+              className={`w-5 h-5 rounded-md border-2 border-foreground flex items-center justify-center transition peer-focus-visible:ring-2 peer-focus-visible:ring-primary ${
+                remember ? 'bg-accent text-accent-foreground' : 'bg-secondary text-transparent'
+              }`}
+            >
+              <Check className="w-3.5 h-3.5" />
+            </span>
+            <span className="text-sm text-muted-foreground">Remember my username</span>
+          </label>
           {error && (
             <div className="bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3 text-sm text-destructive">{error}</div>
           )}

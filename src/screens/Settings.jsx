@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getCurrentAccount, logout, deleteAccount, hasRecoveryPassword } from '@/lib/heychatAuth';
-import { ArrowLeft, Shield, Eye, Users, Trash2, LogOut, Smartphone, AlertTriangle, Globe, KeyRound, MapPin } from 'lucide-react';
+import { ArrowLeft, Shield, Eye, Users, Trash2, LogOut, Smartphone, AlertTriangle, Globe, KeyRound, MapPin, HardDrive } from 'lucide-react';
 import { LANGUAGES, setLanguage } from '@/lib/i18n';
 import ChangePasswordDialog from '@/components/heychat/ChangePasswordDialog';
 import RecoveryPasswordDialog from '@/components/heychat/RecoveryPasswordDialog';
 import NotificationSettings from '@/components/heychat/NotificationSettings';
 import DeviceList from '@/components/heychat/DeviceList';
+import StorageSettings from '@/components/heychat/StorageSettings';
 import { COUNTRIES } from '@/lib/countries';
 
 export default function Settings() {
@@ -144,6 +145,13 @@ export default function Settings() {
             <Smartphone className="w-4 h-4" /> Devices
           </h2>
           <DeviceList />
+        </div>
+
+        <div>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
+            <HardDrive className="w-4 h-4" /> Storage
+          </h2>
+          <StorageSettings />
         </div>
 
         <div>

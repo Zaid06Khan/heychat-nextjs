@@ -1,6 +1,6 @@
-# Calamuse — Next.js + Supabase
+# Calamus3 — Next.js + Supabase
 
-Self-hosted port of the Base44 HeyChat prototype (renamed Calamuse on
+Self-hosted port of the Base44 HeyChat prototype (renamed Calamus3 on
 2026-08-16), on a Postgres database and
 auth you control.
 
@@ -262,7 +262,7 @@ is answered by the browser's own service worker, not the database.
 > next app start re-subscribes it.
 
 On iPhone, web push only reaches **installed** PWAs — Safari delivers nothing
-until Calamuse is added to the home screen. The Settings panel says so.
+until Calamus3 is added to the home screen. The Settings panel says so.
 
 Two recipient preferences are applied **server-side, before anything is sent**,
 because that is the only place they mean anything: a per-conversation **mute**
@@ -315,7 +315,7 @@ back to public.
 
 ### Auth
 
-Calamuse collects no email and no phone. Supabase Auth requires an email, so each
+Calamus3 collects no email and no phone. Supabase Auth requires an email, so each
 account gets a synthetic non-routable one derived from the username
 (`<username>@accounts.heychat.invalid`). Nothing is ever sent to it. The username
 remains the real identifier.

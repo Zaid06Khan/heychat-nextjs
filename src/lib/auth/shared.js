@@ -1,7 +1,7 @@
 import 'server-only';
 
 /**
- * Calamuse's product promise is "no phone number, no email, just a username".
+ * Calamus3's product promise is "no phone number, no email, just a username".
  * Supabase Auth (GoTrue) keys users by email, so every account gets a synthetic,
  * non-routable address derived from the username. Nothing is ever sent to it,
  * and email confirmation is disabled.
@@ -11,7 +11,7 @@ import 'server-only';
  * too — see FOLLOWUPS.md.
  */
 /**
- * STILL SAYS `heychat`, AND MUST. The app was renamed to Calamuse on
+ * STILL SAYS `heychat`, AND MUST. The app was renamed to Calamus3 on
  * 2026-08-16; this was not renamed with it, on purpose.
  *
  * Every account's GoTrue user is keyed by `<username>@<this domain>`, and the

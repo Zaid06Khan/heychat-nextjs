@@ -3,7 +3,9 @@
 Things this codebase knows are wrong or unfinished. Each one is a project in its
 own right.
 
-**Status as of 2026-08-18.** Numbering is kept stable because commit messages
+**Status as of 2026-08-18.** App renamed Calamuse -> **Calamus3** on 2026-08-18;
+see CLAUDE.md for the three identifiers that keep the old spelling.
+ Numbering is kept stable because commit messages
 reference these by number — a closed section keeps its number even after its text
 moves to `FOLLOWUPS-CLOSED.md`.
 
@@ -22,7 +24,7 @@ the four DONE sections below each carry gaps that are still open.
 | 6 | CLOSED | Device binding gone; device list replaces it | 0018/0022 applied. Untested: revoking a *second* device |
 | 7 | LATENT | Username changes would orphan the auth user | Yes — cheap now, expensive later |
 | 8 | OPEN | Retire the shim, one screen at a time | Yes — `ChatView` reads still go through it |
-| 9 | OPEN | Smaller items | Yes — 7 open, incl. two credentials to rotate |
+| 9 | OPEN | Smaller items | Yes — 7 open, incl. two credentials to rotate. Four closed 2026-08-18 |
 | 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window |
 | 11 | DONE | Replies, reactions, edit, delete, typing | 0016/0017/0020 applied. Gaps: notification not cleared on delete, read race, no optimistic send |
 | 12 | DONE | Unread counts | Gap: mutes still count (the four-badge double-mount is fixed) |
@@ -335,6 +337,55 @@ from `TABLES` once nothing imports it.
 ## 9. Smaller items
 
 **Still open:**
+
+- **A sent contact request had no home — fixed 2026-08-18.** The "Sent" tick was
+  a `sentTo` object in `ContactSearch` state, so it lived exactly as long as the
+  page did. Sign out, sign back in, and every request you had ever sent read as
+  though it had been cancelled. Pressing Add again did nothing at all: with a
+  `unique (from_account_id, to_account_id)` constraint on the table,
+  `sendRequest` found the existing row and returned silently — a button that
+  looked broken rather than already-pressed.
+
+  The status is read from the database now, and Contacts has a **Sent** list
+  under Requests with a Withdraw button. Two details are load-bearing:
+
+  - **Withdraw DELETES the row rather than marking it cancelled.** The unique
+    constraint means any row left behind in any status blocks that pair
+    forever, and the failed insert would happen somewhere the user cannot see.
+  - **A declined request is REUSED, not re-inserted.** Same constraint. Asking
+    again is allowed — the alternative is one decline locking you out silently,
+    and the sender is never told a decline happened.
+
+- **A profile photo did not appear when you picked it — fixed 2026-08-18.** The
+  stored value is a private storage key, and `/api/media/sign` deliberately
+  refuses to sign a key that no account yet lists as its avatar. So between
+  picking a photo and pressing "Save Changes" there was nothing renderable at
+  all, and the initial stayed put — indistinguishable from an upload that had
+  failed. Two changes: the picked file is shown immediately from a local object
+  URL (`Avatar` takes a `previewUrl` that short-circuits signing), and the
+  avatar is **saved on pick** rather than on Save, so it is real everywhere at
+  once. Uploads now also report their own failures instead of only reaching the
+  console, and refuse non-images and anything over 8 MB.
+
+  Note for whoever tests this next: the preview appears *before* the upload
+  finishes, so reloading on the preview cancels the save. That is a race in the
+  test, not in the app — wait for `[aria-label="Uploading photo"]` to go.
+
+- **Storage panel in Settings — added 2026-08-18.** Reports
+  `navigator.storage.estimate()` and clears Cache Storage, cache-shaped
+  localStorage keys and the in-memory signed-URL map, keeping preferences and
+  the session. **It is deliberately honest about its limits:** downloaded photos
+  live in the browser's own HTTP cache, which no page is allowed to evict, and
+  messages live on the server — so there is no local message store to prune and
+  clearing loses nothing. If reclaiming device space becomes a real need rather
+  than a worry, the lever is disappearing messages, not this panel.
+
+- **"Remember my username" on the login screen — added 2026-08-18.** The
+  username only, written only after a login that actually worked, so a typo is
+  not helpfully retyped forever. **Never the password:** that would put a
+  reusable credential in localStorage for an account whose only recovery path is
+  a recovery password. It is not a "stay signed in" — the session cookie already
+  does that.
 
 - **Deleting a chat and unfriending — added 2026-08-16.** "Delete chat" hides a
   conversation for you (`0023_conversation_hides.sql`), recording *when* rather

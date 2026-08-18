@@ -144,6 +144,9 @@ function attachRemoteAudio(stream) {
   // Created rather than rendered, because the element must survive navigation.
   // A <audio> inside a component stops playing the moment that screen unmounts,
   // which for a call means the other person goes silent when you check Settings.
+  // The id keeps the old spelling deliberately — it is a private DOM handle,
+  // not a label, and the SQL policy names in 0025 cannot be changed at all
+  // without breaking that migration's checksum.
   let el = document.getElementById('calamuse-remote-audio');
   if (!el) {
     el = document.createElement('audio');

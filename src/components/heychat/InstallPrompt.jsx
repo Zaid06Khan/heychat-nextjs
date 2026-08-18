@@ -40,7 +40,7 @@ export default function InstallPrompt() {
             <Download className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1">
-            <p className="font-semibold text-foreground text-sm">Install Calamuse</p>
+            <p className="font-semibold text-foreground text-sm">Install Calamus3</p>
             <p className="text-muted-foreground text-xs mt-0.5">Add to your home screen for a native app experience.</p>
           </div>
           <button onClick={handleDismiss} className="text-muted-foreground hover:text-foreground">

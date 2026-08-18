@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { getSession } from '@/lib/heychatAuth';
-import { Users, Check, X, UsersRound, UserMinus } from 'lucide-react';
+import { Users, Check, X, UsersRound, UserMinus, Clock } from 'lucide-react';
 import Avatar from '@/components/heychat/Avatar';
 import ContactSearch from '@/components/heychat/ContactSearch';
 import GroupCreateDialog from '@/components/heychat/GroupCreateDialog';
@@ -16,6 +16,7 @@ export default function Contacts() {
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
   const [groupInvites, setGroupInvites] = useState([]);
+  const [sentRequests, setSentRequests] = useState([]);
   const [confirmRemove, setConfirmRemove] = useState(null);
   const [showGroup, setShowGroup] = useState(false);
   const session = getSession();
@@ -38,6 +39,15 @@ export default function Contacts() {
       pending.map((r) => base44.entities.Account.get(r.from_account_id).catch(() => null))
     );
     setRequests(pending.map((r, i) => ({ ...r, account: pendingAccs[i] })).filter((r) => r.account));
+
+    // Requests you have sent and nobody has answered yet. RLS already limits
+    // contact_requests to rows you are a party to, so this is the same read as
+    // the one above with the direction reversed.
+    const outgoing = await base44.entities.ContactRequest.filter({ from_account_id: session.id, status: 'pending' });
+    const outgoingAccs = await Promise.all(
+      outgoing.map((r) => base44.entities.Account.get(r.to_account_id).catch(() => null))
+    );
+    setSentRequests(outgoing.map((r, i) => ({ ...r, account: outgoingAccs[i] })).filter((r) => r.account));
 
     // Group invitations (0019). Through an RPC because the invitee is not a
     // member of the conversation yet, so conversations RLS will not show them
@@ -64,6 +74,22 @@ export default function Contacts() {
 
   const declineRequest = async (req) => {
     await base44.entities.ContactRequest.update(req.id, { status: 'declined' });
+    loadData();
+  };
+
+  /**
+   * Withdrawing DELETES the row rather than marking it cancelled.
+   *
+   * (from_account_id, to_account_id) is unique, so a row left behind in any
+   * status is a row that blocks you from ever asking that person again — and
+   * the insert would fail somewhere the user cannot see it.
+   */
+  const withdrawRequest = async (req) => {
+    try {
+      await base44.entities.ContactRequest.delete(req.id);
+    } catch (e) {
+      console.error(e);
+    }
     loadData();
   };
 
@@ -188,7 +214,9 @@ export default function Contacts() {
             ))}
 
             {requests.length === 0 && groupInvites.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground py-8">No pending requests</p>
+              sentRequests.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-8">No pending requests</p>
+              ) : null
             ) : (
               requests.map((r) => (
                 <div key={r.id} className="flex items-center gap-3 p-2 rounded-xl bg-secondary/30">
@@ -213,6 +241,36 @@ export default function Contacts() {
                   </button>
                 </div>
               ))
+            )}
+
+            {/* Requests YOU sent. Without this the sender had no record of them
+                anywhere — the only trace was a tick in component state, so
+                signing out made every request you had sent look like it had
+                never happened, or been cancelled. */}
+            {sentRequests.length > 0 && (
+              <div className="pt-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 pb-1">
+                  Sent · waiting for a reply
+                </p>
+                {sentRequests.map((r) => (
+                  <div key={r.id} className="flex items-center gap-3 p-2 rounded-xl">
+                    <Avatar src={r.account.avatar} name={r.account.display_name || r.account.username} size={44} />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground text-sm truncate">{r.account.display_name || r.account.username}</p>
+                      <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                        <Clock className="w-3 h-3 shrink-0" /> @{r.account.username}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => withdrawRequest(r)}
+                      aria-label={`Withdraw the contact request to ${r.account.display_name || r.account.username}`}
+                      className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-lg bg-secondary text-muted-foreground hover:text-destructive transition"
+                    >
+                      Withdraw
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         ) : (

@@ -20,6 +20,11 @@
  * is the normal case, not an edge one. That also means no migration.
  */
 
+// STILL SAYS `calamuse`, AND SHOULD. The app was renamed to Calamus3 on
+// 2026-08-18, but this string is a key in every existing browser's
+// localStorage. Renaming it silently resets the preference of everyone who had
+// turned sound off, which is the one group that would notice. Same reasoning as
+// HEYCHAT_SYNTHETIC_EMAIL_DOMAIN in lib/auth/shared.js.
 const KEY = 'calamuse_sound_enabled';
 
 export function isSoundEnabled() {

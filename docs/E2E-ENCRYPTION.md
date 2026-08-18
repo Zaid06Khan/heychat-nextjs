@@ -3,7 +3,7 @@
 **Status: a plan, not a commitment. No code has been written.**
 Written 2026-08-16, for FOLLOWUPS §3.
 
-This is deliberately specific to Calamuse as it stands today. Generic E2E advice
+This is deliberately specific to Calamus3 as it stands today. Generic E2E advice
 is easy to find and useless for deciding; what follows is which of *this app's*
 existing features stop working, which decisions have to be made by a person
 rather than by a library, and what the honest staging looks like.
@@ -41,7 +41,7 @@ done, it should be described as exactly what it is.
 ## 2. What breaks, feature by feature
 
 This is the part that decides whether the project is worth starting. Everything
-below is something Calamuse already does.
+below is something Calamus3 already does.
 
 ### 2.1 Push notification previews — the biggest one
 
@@ -117,7 +117,7 @@ timing is convenient — it is now guaranteed to exist. The consequences:
 
 ### 2.5 Report and moderation
 
-`ReportDialog` sends a reason to a `reports` table for "the Calamuse team" to
+`ReportDialog` sends a reason to a `reports` table for "the Calamus3 team" to
 review. With E2E there is nothing readable to review. Every E2E messenger has
 this problem and none has solved it well. The realistic options:
 
@@ -212,7 +212,7 @@ list, groups, moderation and account recovery — most of what has been built in
 the last week — and it is the kind of work where "nearly finished" is worth
 nothing.
 
-**So the real question is not technical.** It is whether Calamuse is a product
+**So the real question is not technical.** It is whether Calamus3 is a product
 whose point is privacy, or a messenger that is privately hosted. If the first,
 E2E is not a feature to add later; it is the thing, and Stage 0 should start now.
 If the second, then say "encrypted in transit, stored on our own server", which
