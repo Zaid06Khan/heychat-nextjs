@@ -65,6 +65,17 @@ npm run push:test -- <username>
   and re-run before believing a send failure. (Signing an existing account into a
   differently-sized context used to be impossible; since §6 it works fine.)
 
+## The logo
+
+`assets/logo-master.png` is the master (1261x1247, transparent). Every shipped
+size is generated from it by `node scripts/build-icons.mjs` — regenerate rather
+than hand-editing a PNG in `public/`.
+
+It is a full-colour lockup with its own dark ground, not a monochrome glyph, so
+the `gradient-bg` chips that used to sit behind the old mark are gone. **It is
+built for 32px and up**; below that the circuit tracery and the wordmark inside
+the shield turn to mush, and the favicon reads as "a gold shield" and no more.
+
 ## Renaming the app is not a global find-and-replace
 
 Three identifiers keep the OLD spelling on purpose, and each one breaks something

@@ -1,45 +1,37 @@
 /**
- * The mark: one speech bubble, split down the middle, with two tails.
+ * The mark: the Calamus3 shield — gold on near-black, quill and scroll.
  *
- * One conversation, two voices — the seam and the second tail are the whole
- * idea, and they are what stop it being the generic bubble every chat app uses.
- * It replaced a shield with a tick in it, which read as antivirus rather than
- * anything to do with talking to people.
+ * Adopted 2026-08-18, replacing a drawn two-tailed speech bubble (which had
+ * itself replaced a shield-with-a-tick that read as antivirus).
  *
- * MONOCHROME ON PURPOSE. Every call site puts this inside a coloured chip and
- * sets the colour with `text-*`, so the mark takes `currentColor` and carries no
- * palette of its own. The two-tone version — blue and citrus halves — lives in
- * `public/icon.svg`, which is the only place a full-colour lockup is wanted.
- * Keeping them apart is why the app icon can be ink-on-dark while the in-app
- * mark stays white on blue.
+ * IT IS A COMPLETE LOCKUP, NOT A GLYPH, and that changed how it is used. The
+ * old mark was a monochrome path that took `currentColor`, so every call site
+ * sat it inside a `gradient-bg` chip and coloured it with `text-white`. This one
+ * carries its own palette and its own dark shield ground, so those chips are
+ * gone — a blue gradient behind a gold shield fought it and hid the silhouette.
+ * Call sites now render the mark at the size the chip used to be.
  *
- * Drawn in a 100×100 box with a 7-unit stroke so it still holds at the smallest
- * size it is used at (w-5, i.e. 20px).
+ * RASTER, NOT VECTOR, because the artwork is a rendered illustration with
+ * gradients, bevels and circuit tracery. There is no faithful path version of
+ * it. The consequence is worth stating plainly: it is built for 32px and up.
+ * Below that the tracery and the wordmark inside the shield turn to mush — the
+ * favicon is legible as "a gold shield" and no more. A simplified small-size
+ * variant would be a separate piece of artwork, not something to derive here.
+ *
+ * `/logo.png` is 512px square with a transparent ground. The other sizes
+ * (manifest, apple-touch, favicon) are generated from the same source; see
+ * scripts/build-icons.mjs.
  */
-export default function Logo({ className = 'w-10 h-10' }) {
+export default function Logo({ className = 'w-10 h-10', alt = '' }) {
   return (
-    <svg
-      viewBox="0 0 100 100"
-      className={className}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      {/* Right half, tail dropping right of centre. */}
-      <path
-        d="M50 12 h28 a18 18 0 0 1 18 18 v24 a18 18 0 0 1 -18 18 h-8 v16 l-16 -16 h-4 z"
-        stroke="currentColor"
-        strokeWidth="7"
-        strokeLinejoin="round"
-      />
-      {/* Left half, mirrored. The shared edge at x=50 is drawn by both and is
-          the seam that makes it two bubbles rather than one. */}
-      <path
-        d="M50 12 h-28 a18 18 0 0 0 -18 18 v24 a18 18 0 0 0 18 18 h8 v16 l16 -16 h4 z"
-        stroke="currentColor"
-        strokeWidth="7"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <img
+      src="/logo.png"
+      alt={alt}
+      // Decorative wherever it sits beside the wordmark, which is every current
+      // call site. A caller that uses it as the only naming passes `alt`.
+      aria-hidden={alt ? undefined : 'true'}
+      draggable="false"
+      className={`${className} object-contain select-none`}
+    />
   );
 }

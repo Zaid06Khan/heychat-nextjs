@@ -71,9 +71,7 @@ export default function Login() {
         <ArrowLeft className="w-4 h-4" /> Back
       </Link>
       <div className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full">
-        <div className="w-16 h-16 rounded-2xl gradient-bg flex items-center justify-center glow-soft mb-6">
-          <Logo className="w-9 h-9 text-white" />
-        </div>
+        <Logo className="w-20 h-20 mb-5" />
         <h1 className="text-3xl font-heading font-bold text-foreground mb-2">Welcome back</h1>
         <p className="text-muted-foreground mb-8">Log in with your username and password.</p>
         <form onSubmit={handleSubmit} className="space-y-4">

@@ -13,9 +13,7 @@ export default function Landing() {
           blur in it at all. */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
         <div className="max-w-md">
-          <div className="w-20 h-20 mx-auto rounded-3xl gradient-bg flex items-center justify-center shadow-pop-lg mb-8 animate-slide-up">
-            <Logo className="w-11 h-11" />
-          </div>
+          <Logo className="w-28 h-28 mx-auto mb-6 animate-slide-up" />
           <h1 className="text-6xl font-display font-extrabold text-foreground mb-3 animate-slide-up">Calamus3</h1>
           <p className="text-xl font-display font-bold text-primary mb-3 animate-slide-up">Private. Simple. Yours.</p>
           <p className="text-sm font-medium text-muted-foreground mb-10 max-w-sm mx-auto animate-slide-up">

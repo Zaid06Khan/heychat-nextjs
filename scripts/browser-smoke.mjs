@@ -882,14 +882,18 @@ try {
   await A.waitForSelector('input[type="file"]', { state: 'attached', timeout: 15000 });
   check(await A.locator('input[type="file"]').count() === 1,
     'the profile screen offers a photo picker');
-  check(await A.locator('img').count() === 0, 'no photo to begin with — just the initial');
+  // Scoped to the avatar's own alt text. A bare `img` counter used to work and
+  // silently stopped when the app logo became an <img> — the sidebar renders one
+  // on this page, so the count was never zero.
+  const avatarImg = `img[alt="${userA}"]`;
+  check(await A.locator(avatarImg).count() === 0, 'no photo to begin with — just the initial');
 
   await A.setInputFiles('input[type="file"]', {
     name: 'avatar.png',
     mimeType: 'image/png',
     buffer: PNG_1PX,
   });
-  check(await seen(A, 'img', 15000), 'the photo appears immediately after picking it');
+  check(await seen(A, avatarImg, 15000), 'the photo appears immediately after picking it');
 
   // Saved on pick, not on "Save Changes" — so it is there on the next visit,
   // and everywhere else in the app, without a second deliberate step.
@@ -901,7 +905,7 @@ try {
   check(await gone(A, '[aria-label="Uploading photo"]', 30000),
     'the upload finishes');
   await A.reload({ waitUntil: 'domcontentloaded' });
-  const survived = await seen(A, 'img', 20000);
+  const survived = await seen(A, avatarImg, 20000);
   check(survived, 'and it is still there after a reload, so it really was saved');
 
   await ctxC.close();

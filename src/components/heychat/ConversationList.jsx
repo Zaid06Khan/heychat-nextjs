@@ -264,9 +264,7 @@ export default function ConversationList() {
       <div className="p-4 border-b-2 border-foreground">
         <div className="flex items-center justify-between mb-3">
           <Link to="/home" className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl gradient-bg flex items-center justify-center shadow-pop-sm">
-              <Logo className="w-5 h-5" />
-            </div>
+            <Logo className="w-9 h-9" />
             <span className="text-2xl font-display font-extrabold text-foreground">Calamus3</span>
           </Link>
           <div className="flex items-center gap-1">

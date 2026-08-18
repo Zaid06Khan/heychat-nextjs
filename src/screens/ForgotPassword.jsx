@@ -59,9 +59,7 @@ export default function ForgotPassword() {
         <ArrowLeft className="w-4 h-4" /> Back to login
       </Link>
       <div className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full">
-        <div className="w-16 h-16 rounded-2xl gradient-bg flex items-center justify-center glow-soft mb-6">
-          <Logo className="w-9 h-9 text-white" />
-        </div>
+        <Logo className="w-20 h-20 mb-5" />
 
         {step === 1 && (
           <>
