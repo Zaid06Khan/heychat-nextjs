@@ -254,7 +254,31 @@ export default function ChatView() {
   const deliver = async (payload) => {
     setSendError(null);
     try {
-      await sendMessage(payload);
+      const sent = await sendMessage(payload);
+
+      // Show it immediately, rather than waiting for realtime to tell us about
+      // our own message.
+      //
+      // The row is already written and the response carries it, so there is no
+      // server opinion left to wait for — yet the thread used to render nothing
+      // until the subscription fired and triggered a reload. That made the
+      // composer depend on a websocket for something it already had, and it
+      // failed visibly: two browser-suite assertions once went red on a run
+      // where every POST /api/messages returned 200 and the message simply
+      // never appeared.
+      //
+      // Appending is safe against the reload that follows. `loadMessages()`
+      // replaces the array wholesale from the database, which by then contains
+      // this row — so the optimistic copy is replaced by an identical one
+      // rather than duplicated. The id guard covers the race the other way,
+      // where realtime wins and reloads before this line runs.
+      if (sent?.id) {
+        setMessages((current) =>
+          current.some((m) => m.id === sent.id) ? current : [...current, sent]
+        );
+        messageIdsRef.current.add(sent.id);
+      }
+
       // After the server accepts it, not before — a sound for a message that
       // then fails to send is a lie, and failures are visible enough now
       // (rate limits) to matter.

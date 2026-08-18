@@ -75,7 +75,7 @@ src/components/heychat/   the original components
 src/api/base44Client.js   compatibility shim  ─┐  scaffolding, being retired (§8)
 src/lib/shim/             Supabase behind it  ─┘
 src/lib/supabase/         browser / route-handler / service-role clients
-supabase/migrations/      the database, 0001–0023
+supabase/migrations/      the database, 0001–0024
 ```
 
 ### Three Supabase clients, on purpose

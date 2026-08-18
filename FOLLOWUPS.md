@@ -500,10 +500,11 @@ Known gaps, in rough order of how soon someone will notice:
   together with pending group invitations by `src/lib/pending.js` — the same
   tiny-store shape as `unread.js`, published by `AppLayout` because the badge
   must appear wherever you are rather than only on the Contacts screen. Contact
-  requests update live; **group invitations do not**, because `group_invites`
-  was never added to the realtime publication (0019), so one of those lands on
-  the next navigation instead. A migration would fix it; a badge did not seem
-  worth one.
+  requests and group invitations both update live —
+  `0024_group_invites_realtime.sql` put `group_invites` on the publication,
+  which 0019 had missed in exactly the way 0012 missed `message_reactions`.
+  Second time this has caught the project: subscribing to an unpublished table
+  succeeds, joins cleanly, raises nothing, and never fires.
 - **Deleting a message does not clear the notification** already on someone's
   lock screen. The service worker would need to close notifications by tag.
 - ~~The conversation-list realtime channel never received row data.~~ **Fixed
@@ -520,18 +521,16 @@ Known gaps, in rough order of how soon someone will notice:
   is set. The session is now fetched and `realtime.setAuth()` called before the
   channel exists, and the browser suite asserts the sound fires, which can only
   happen if the payload carries real columns.
-- **The sender does not see their own message until realtime delivers it.**
-  `ChatView` has no optimistic append: sending posts to `/api/messages`, and the
-  bubble appears only when the subscription fires and triggers a reload. So the
-  composer depends on a websocket for something that needs no server opinion at
-  all — the row is already written and the response carries it.
+- ~~The sender does not see their own message until realtime delivers it.~~
+  **Fixed 2026-08-17.** `deliver()` appends the row `/api/messages` returns and
+  lets the realtime reload reconcile, so the composer no longer depends on a
+  websocket for something it already has. Safe against the reload that follows:
+  `loadMessages()` replaces the array wholesale from the database, which by then
+  contains the row, and an id guard covers the race where realtime wins first.
 
-  Seen rather than theorised: two browser-suite assertions failed on a run where
-  every `POST /api/messages` returned 200, because the UI never rendered what
-  the server had accepted. A clean run passed, so it is churn rather than a
-  hard break — which is exactly what makes it worth writing down. Appending the
-  returned message and letting the realtime reload reconcile would remove the
-  dependency.
+  It was found rather than theorised — two browser-suite assertions went red on
+  a run where every `POST /api/messages` returned 200 and the message simply
+  never rendered.
 - ~~`quoteFor()` only resolves replies inside the loaded 200 messages.~~
   **Fixed 2026-08-16.** Quoted rows outside the batch are fetched by id
   (`getMessagesByIds`), so an old original shows its real preview instead of

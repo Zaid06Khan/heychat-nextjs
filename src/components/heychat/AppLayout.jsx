@@ -80,10 +80,10 @@ export default function AppLayout() {
    * the nav whether or not you are looking at that screen. That is the whole
    * point: you should find out a request arrived without going to check.
    *
-   * Refreshed on mount, whenever the route changes, and when a contact_requests
-   * row moves. Group invites are not on the realtime publication, so a new one
-   * lands on the next navigation rather than instantly — a compromise taken to
-   * avoid a migration for a badge.
+   * Refreshed on mount, whenever the route changes, and when either
+   * `contact_requests` or `group_invites` moves. The route-change refresh stays
+   * as the belt to realtime's braces: it costs two cheap counts and covers a
+   * dropped socket, which is the failure realtime cannot report.
    */
   const session = getSession();
 
@@ -114,6 +114,14 @@ export default function AppLayout() {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'contact_requests' },
+          () => refreshPending(session.id)
+        )
+        // Group invitations too, since 0024 put them on the publication. Both
+        // handlers just recount — nothing is read off the payload, so this is
+        // unaffected by what replica identity a delete carries.
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'group_invites' },
           () => refreshPending(session.id)
         )
         .subscribe();

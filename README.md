@@ -44,6 +44,7 @@ supabase/migrations/0020_edit_history.sql        edit window + history
 supabase/migrations/0021_service_role_grants.sql service_role grants 0016/19/20 missed
 supabase/migrations/0022_recovery_password_status.sql  "do I have a recovery password?"
 supabase/migrations/0023_conversation_hides.sql  delete chat (for you only)
+supabase/migrations/0024_group_invites_realtime.sql  group invites on the live feed
 ```
 
 > `0005` then `0007` on a fresh database is a build-then-demolish, which looks
