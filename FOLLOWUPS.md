@@ -3,7 +3,7 @@
 Things this codebase knows are wrong or unfinished. Each one is a project in its
 own right.
 
-**Status as of 2026-08-16.** Numbering is kept stable because commit messages
+**Status as of 2026-08-18.** Numbering is kept stable because commit messages
 reference these by number — a closed section keeps its number even after its text
 moves to `FOLLOWUPS-CLOSED.md`.
 
@@ -30,7 +30,7 @@ the four DONE sections below each carry gaps that are still open.
 
 ---
 
-## 1. Calls — audio works, 2026-08-17. Video and groups do not.
+## 1. Calls — audio works, 2026-08-18. Video and groups do not.
 
 **1:1 audio calls connect for real.** `0025_call_channels.sql` authorises a
 private `call:<conversation_id>` Realtime channel using the same
@@ -58,6 +58,35 @@ That last clause was earned. The first run connected *and* threw
 the same topic, overwriting the reference and leaking the first — so every
 signal arrived twice. The call still worked, which is what would have let it
 survive. `openChannel` is idempotent per topic now.
+
+**The second call never arrived, 2026-08-18.** One call worked; hang up, call
+again, and the other person's phone stayed quiet. `cleanup()` removed the
+Realtime channel at the end of every call — including the channel `watchForCalls`
+had opened to *listen* for calls, which the two shared. Nothing re-opened it,
+because that effect only re-runs when the conversation changes, and it had not
+changed. Both people sat in the chat believing the other was ignoring them.
+
+The fix is a `watching` flag: while a screen is holding the channel open, ending
+a call may not close it, and returning to idle keeps `meId` / `conversationId` /
+`peerName` so the next incoming offer can still be answered. **A single-call test
+cannot see this bug**, which is how it shipped — `7c. CALLING, TWICE` in
+`scripts/browser-smoke.mjs` now places two calls in a row for exactly that reason.
+
+**Nothing rang, 2026-08-18.** Calls were silent on both sides — the screen said
+"Ringing…" while no sound was ever made, so an incoming call was invisible unless
+you happened to be looking at the tab. `startRinging()` / `stopRinging()` in
+`src/lib/sound.js` synthesise both parts: a rising two-note ringtone for the
+person being called, a single long ringback tone for the person calling, each
+repeating until the call is answered, declined, or cleaned up.
+
+Two details worth keeping:
+
+- **Ringing ignores the "Sound for new messages" setting.** `play()` takes a
+  `force` flag for this. Muting message chimes is a different intention from
+  wanting to miss calls.
+- **Message and send sounds were far too quiet** — peak gain 0.09 and 0.05.
+  They were audible in isolation and inaudible in a room, which is
+  indistinguishable from broken. Now 0.28 and 0.16.
 
 ### Still open
 

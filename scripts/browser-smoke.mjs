@@ -217,16 +217,31 @@ const register = async (page, username) => {
   await page.waitForURL(/\/home/, { timeout: 25000 });
 };
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({
+  // A fake microphone, so getUserMedia succeeds with no hardware attached.
+  // Everything else about a call stays real: signalling, ICE, the peer
+  // connection, and the audio track that arrives at the other end.
+  args: [
+    '--use-fake-ui-for-media-stream',
+    '--use-fake-device-for-media-stream',
+    '--autoplay-policy=no-user-gesture-required',
+  ],
+});
 
 try {
-  const ctxA = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const ctxB = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  // Microphone granted up front: Playwright keeps its own permission state
+  // regardless of the fake-device flags, and a denied getUserMedia surfaces as
+  // "could not use your microphone" rather than as a signalling failure.
+  const callCtx = { viewport: { width: 1280, height: 900 }, permissions: ['microphone'] };
+  const ctxA = await browser.newContext(callCtx);
+  const ctxB = await browser.newContext(callCtx);
   const A = await ctxA.newPage();
   const B = await ctxB.newPage();
   watchConsole(A, 'A');
   watchConsole(B, 'B');
   await countSounds(A);
+  // B counts too, because a ringtone is something the CALLEE must hear.
+  await countSounds(B);
 
   console.log('\n--- 1. LANDING AND REGISTRATION ---');
   await A.goto(APP, { waitUntil: 'domcontentloaded' });
@@ -503,6 +518,61 @@ try {
   await A.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
   check(await seen(A, `text=${userB}`),
     'and it is still there on /contacts, where the sidebar persists');
+
+  console.log('\n--- 7c. CALLING, TWICE ---');
+  // TWICE ON PURPOSE. One call always worked; the SECOND never reached the
+  // other person, because ending a call tore down the signalling channel that
+  // watchForCalls had opened — and that effect only re-runs when the
+  // conversation changes, so nothing ever re-opened it. A single-call test
+  // cannot see that, which is how it shipped.
+  const intoChat = async (page, whoElse) => {
+    await page.goto(`${APP}/home`, { waitUntil: 'domcontentloaded' });
+    await seen(page, `text=${whoElse}`);
+    await page.locator(`text=${whoElse}`).first().click();
+    await page.waitForURL(/\/chat\//, { timeout: 15000 });
+  };
+  await intoChat(A, userB);
+  await intoChat(B, userA);
+  // Ringing only reaches someone who has the conversation open, so both have to
+  // be sitting in it before the first call is placed.
+  await seen(A, 'button[aria-label^="Call "]');
+  await seen(B, 'textarea');
+
+  for (const round of [1, 2]) {
+    const ringA = await soundCount(A);
+    const ringB = await soundCount(B);
+
+    await A.locator('button[aria-label^="Call "]').first().click();
+    const rung = await seen(B, 'text=Incoming call', 20000);
+    check(rung, `call ${round}: the other side is rung`);
+    if (!rung) break;
+
+    // Both sides make a noise while a call is pending: a ringtone for the person
+    // being called, a ringback for the person calling. Neither did, and silence
+    // is indistinguishable from a call that never arrived.
+    check(await soundCount(B) > ringB, `call ${round}: the callee hears a ringtone`,
+      `oscillators ${ringB} -> ${await soundCount(B)}`);
+    check(await soundCount(A) > ringA, `call ${round}: the caller hears ringback`,
+      `oscillators ${ringA} -> ${await soundCount(A)}`);
+
+    await B.locator('button[aria-label="Accept call"]').click();
+    // Mute renders only once the peer connection reports `connected`, so it is
+    // the honest signal that media is flowing. A duration regex is not — one
+    // matched nothing while the call was connected and visibly counting.
+    check(await seen(A, 'button[aria-label="Mute"]', 30000), `call ${round}: connects`);
+
+    // And the ringing has to STOP once someone picks up, or it plays over the
+    // conversation for as long as the call lasts.
+    const quiet = await soundCount(B);
+    await A.waitForTimeout(3200);
+    check(await soundCount(B) === quiet, `call ${round}: ringing stops on answer`,
+      `oscillators ${quiet} -> ${await soundCount(B)}`);
+
+    await A.locator('button[aria-label="Hang up"]').click();
+    check(await gone(B, 'button[aria-label="Hang up"]', 10000),
+      `call ${round}: hanging up clears both sides`);
+    await A.waitForTimeout(1500);
+  }
 
   console.log('\n--- 7b. A THREAD LONGER THAN THE LOAD LIMIT ---');
   // ChatView loads 200 messages. It used to take them ASCENDING, which is the

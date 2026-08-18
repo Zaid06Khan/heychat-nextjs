@@ -102,7 +102,7 @@ export function playMessageSound() {
   play([
     { freq: 659.25, at: 0, len: 0.09 },
     { freq: 880.0, at: 0.085, len: 0.13 },
-  ], 0.09);
+  ], 0.28);
 }
 
 /**
@@ -114,11 +114,16 @@ export function playMessageSound() {
  * pair is distinguishable without having to think about it.
  */
 export function playSentSound() {
-  play([{ freq: 392.0, at: 0, len: 0.075 }], 0.05);
+  play([{ freq: 392.0, at: 0, len: 0.075 }], 0.16);
 }
 
-function play(notes, peak) {
-  if (!isSoundEnabled()) return;
+/**
+ * @param {boolean} [force] play even when message sounds are switched off.
+ *   Used only by ringing — see startRinging for why that is not the same
+ *   preference.
+ */
+function play(notes, peak, force = false) {
+  if (!force && !isSoundEnabled()) return;
 
   try {
     const audio = getContext();
@@ -145,5 +150,51 @@ function play(notes, peak) {
   } catch {
     // Autoplay blocked, no audio device, context dead after a restore. All of
     // them mean "no sound", none of them mean "something went wrong".
+  }
+}
+
+/* ------------------------------------------------------------------ ringing */
+
+let ringTimer = null;
+
+/**
+ * Ringing, on both sides of a call.
+ *
+ * A repeating pattern rather than one blip, because a ring has to last as long
+ * as the question does — a single chirp for an incoming call is missable, which
+ * is the whole failure it exists to prevent.
+ *
+ * IGNORES THE MESSAGE-SOUND TOGGLE, deliberately. That switch says "Sound for
+ * new messages"; someone who silences message pings has not asked to miss phone
+ * calls, and silently reading it that way would be the app deciding something
+ * it was not told.
+ *
+ * @param {'incoming'|'outgoing'} kind
+ */
+export function startRinging(kind) {
+  stopRinging();
+
+  const pattern =
+    kind === 'incoming'
+      ? // Two rising pairs — insistent, clearly "answer me".
+        { notes: [
+            { freq: 587.33, at: 0, len: 0.18 },
+            { freq: 783.99, at: 0.22, len: 0.22 },
+            { freq: 587.33, at: 0.62, len: 0.18 },
+            { freq: 783.99, at: 0.84, len: 0.22 },
+          ], peak: 0.34, every: 2600 }
+      : // Ringback: one long low tone, the sound of waiting rather than of being
+        // summoned. Quieter, since it is your own phone telling you it is trying.
+        { notes: [{ freq: 440.0, at: 0, len: 0.9 }], peak: 0.14, every: 3000 };
+
+  const fire = () => play(pattern.notes, pattern.peak, true);
+  fire();
+  ringTimer = setInterval(fire, pattern.every);
+}
+
+export function stopRinging() {
+  if (ringTimer) {
+    clearInterval(ringTimer);
+    ringTimer = null;
   }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getIceConfig } from './ice';
+import { startRinging, stopRinging } from '@/lib/sound';
 
 /**
  * One-to-one calls. Audio for now; video is a later pass.
@@ -35,6 +36,9 @@ let pc = null;            // RTCPeerConnection
 let localStream = null;   // microphone
 let channel = null;       // signalling
 let channelTopic = null;  // which conversation `channel` is joined to
+// True while a screen is holding the channel open to hear incoming calls. It
+// decides whether ending a call may close the channel — see cleanup().
+let watching = false;
 let ringTimer = null;
 // Candidates that arrive before setRemoteDescription cannot be added yet.
 let pendingCandidates = [];
@@ -78,6 +82,7 @@ function send(type, payload = {}) {
  * still listening — and on that suspicion alone people uninstall.
  */
 function cleanup() {
+  stopRinging();
   clearTimeout(ringTimer);
   ringTimer = null;
   pendingCandidates = [];
@@ -93,12 +98,40 @@ function cleanup() {
     try { pc.close(); } catch { /* already closed */ }
     pc = null;
   }
-  if (channel) {
+  // THE CHANNEL IS NOT THE CALL'S TO CLOSE while a screen is listening on it.
+  //
+  // This used to remove it unconditionally, and that broke the second call
+  // every time: the receiver's channel was opened by watchForCalls when they
+  // entered the conversation, ending the first call tore it down, and the
+  // effect that opened it only re-runs when the conversation changes — so
+  // nothing ever re-opened it. The first call worked; every call after it rang
+  // out against a channel nobody was listening on.
+  if (channel && !watching) {
     const supabase = getSupabaseBrowserClient();
     supabase.removeChannel(channel);
     channel = null;
     channelTopic = null;
   }
+}
+
+/**
+ * Back to idle, keeping the context a listening screen still needs.
+ *
+ * Publishing a bare { status: 'idle' } dropped meId, conversationId and
+ * peerName — so the next incoming call rang as "Someone" and had no id to
+ * answer from. Ending a call is not the same as leaving the conversation.
+ */
+function backToIdle() {
+  publish(
+    watching
+      ? {
+          status: 'idle',
+          conversationId: state.conversationId,
+          meId: state.meId,
+          peerName: state.peerName,
+        }
+      : IDLE
+  );
 }
 
 async function getMicrophone() {
@@ -208,6 +241,9 @@ export async function startCall({ conversationId, meId, peerName }) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     send('offer', { sdp: offer });
+    // Ringback: your own phone telling you it is trying. Started only after the
+    // offer is actually sent, so it never rings for a call that failed to leave.
+    startRinging('outgoing');
 
     ringTimer = setTimeout(() => endCall('no-answer'), RING_TIMEOUT_MS);
   } catch {
@@ -219,6 +255,7 @@ export async function startCall({ conversationId, meId, peerName }) {
 /** Answer the call currently ringing. */
 export async function acceptCall() {
   if (state.status !== 'ringing') return;
+  stopRinging();
   clearTimeout(ringTimer);
 
   try {
@@ -257,7 +294,7 @@ export function declineCall() {
   if (state.status !== 'ringing') return;
   send('decline');
   cleanup();
-  publish(IDLE);
+  backToIdle();
 }
 
 /** Hang up, or abandon an attempt. `reason` shapes what the UI says. */
@@ -267,14 +304,14 @@ export function endCall(reason = 'ended') {
   cleanup();
 
   if (reason === 'ended') {
-    publish(IDLE);
+    backToIdle();
     return;
   }
   publish({ status: 'error', reason, peerName: state.peerName });
   // An error is a message, not a mode. It clears itself so the app does not sit
   // in a failed state nobody dismissed.
   setTimeout(() => {
-    if (state.status === 'error') publish(IDLE);
+    if (state.status === 'error') backToIdle();
   }, 6000);
 }
 
@@ -311,6 +348,7 @@ async function onSignal(payload, meId) {
         offer: payload.sdp,
         outgoing: false,
       });
+      startRinging('incoming');
       ringTimer = setTimeout(() => {
         if (state.status === 'ringing') declineCall();
       }, RING_TIMEOUT_MS);
@@ -318,6 +356,7 @@ async function onSignal(payload, meId) {
     }
 
     case 'answer': {
+      stopRinging();
       // `stable` means an answer has already been applied. With the channel
       // guard above this should not happen; ignoring it costs nothing and an
       // uncaught throw in a signalling handler kills the rest of the call.
@@ -345,13 +384,13 @@ async function onSignal(payload, meId) {
 
     case 'decline':
       cleanup();
-      publish({ status: 'error', reason: 'declined', peerName: state.peerName });
-      setTimeout(() => { if (state.status === 'error') publish(IDLE); }, 4000);
+      publish({ ...state, status: 'error', reason: 'declined' });
+      setTimeout(() => { if (state.status === 'error') backToIdle(); }, 4000);
       break;
 
     case 'hangup':
       cleanup();
-      publish(IDLE);
+      backToIdle();
       break;
 
     default:
@@ -372,9 +411,11 @@ export async function watchForCalls({ conversationId, meId, peerName }) {
   if (channel && channelTopic === `call:${conversationId}`) return () => {};
 
   publish({ status: 'idle', conversationId, meId, peerName });
+  watching = true;
   channel = await openChannel(conversationId, meId);
 
   return () => {
+    watching = false;
     // Only if nothing is happening. Leaving a conversation mid-call must not
     // take the signalling with it, or hanging up never reaches the other side.
     if (state.status === 'idle' && channel) {
