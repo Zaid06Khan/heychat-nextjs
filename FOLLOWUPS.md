@@ -14,7 +14,7 @@ the four DONE sections below each carry gaps that are still open.
 
 | § | Status | What it is | Still open? |
 |---|---|---|---|
-| 1 | **HIGH** | Video calls have never connected | Yes — needs signalling, TURN, an SFU. Use LiveKit or Daily. |
+| 1 | PARTIAL | 1:1 audio calls work; video and groups do not | Yes — **no TURN relay**, so ~15-20% of networks cannot connect |
 | 2 | DROPPED | Watch-and-earn | No → `FOLLOWUPS-CLOSED.md` |
 | 3 | DECISION | No end-to-end encryption | Yes — **plan written**, `docs/E2E-ENCRYPTION.md`. Needs three product answers before any code |
 | 4 | CLOSED | Attachments were public by URL | No → `FOLLOWUPS-CLOSED.md` |
@@ -30,29 +30,58 @@ the four DONE sections below each carry gaps that are still open.
 
 ---
 
-## 1. Video calls do not connect — HIGH
+## 1. Calls — audio works, 2026-08-17. Video and groups do not.
 
-**Unchanged. It has never worked.**
+**1:1 audio calls connect for real.** `0025_call_channels.sql` authorises a
+private `call:<conversation_id>` Realtime channel using the same
+`is_conversation_member()` rule as everything else; `src/lib/calls/controller.js`
+does the offer/answer/ICE and owns the peer connection; `CallBar.jsx` is mounted
+in `AppLayout` so a call outlives the screen it started on.
 
-`CallOverlay.jsx` calls `getUserMedia()` and renders *your own camera*. There is
-no `RTCPeerConnection`, no signalling, no STUN/TURN. Two people "on a call" each
-see themselves. The `calls` table records that a call happened and nothing else.
+**What the old code was.** `CallOverlay.jsx` called `getUserMedia()` and rendered
+*your own camera*, muted. No `RTCPeerConnection`, no signalling, no relay — two
+people "on a call" each watched themselves. None of it was reused.
 
-**What changed:** the entry point is gone. The button was removed from the
-`ChatView` header, and "Video Calls" was removed from the landing page, where it
-was advertising a feature that does not exist. The `/call/:conversationId` route
-still exists so the screen can be developed against, and is now behind
-`AuthGuard` (it wasn't).
+**Calls are the most private thing in this app.** WebRTC mandates DTLS-SRTP, so
+the audio is end-to-end encrypted between the two browsers while message bodies
+sit in plaintext in Postgres (§3). That holds even on a relayed call: TURN
+forwards packets it cannot read.
 
-To make it real you need three pieces, not one:
-- **Signalling** — exchange SDP offers/answers and ICE candidates. Supabase
-  Realtime broadcast can carry this; the dependency is already there.
-- **TURN** — roughly 15–20% of connections can't do peer-to-peer and must relay.
-  Paid and bandwidth-metered; there is no free-tier answer.
-- **Group calls** — mesh peer-to-peer collapses past ~4 participants. Groups
-  need an SFU.
+**Verified between two real browsers**: the button appears only in direct
+conversations, the caller sees ringing, the other side is rung, the connection
+reaches `connected` and counts a duration, remote audio is attached to a playing
+element, and hanging up clears both sides with no page errors.
 
-Realistically: use LiveKit or Daily rather than building this.
+That last clause was earned. The first run connected *and* threw
+`setRemoteDescription ... Called in wrong state: stable`, because
+`watchForCalls` opened the signalling channel and `startCall` opened a second on
+the same topic, overwriting the reference and leaking the first — so every
+signal arrived twice. The call still worked, which is what would have let it
+survive. `openChannel` is idempotent per topic now.
+
+### Still open
+
+- **No TURN relay yet.** Roughly 15–20% of connections cannot go peer-to-peer —
+  symmetric NAT, strict corporate firewalls, some mobile carriers — and need
+  their audio relayed. Without one those calls fail rather than all calls
+  failing, which is why this shipped before the relay existed. `ice.js` reads
+  `NEXT_PUBLIC_TURN_URL` / `_USERNAME` / `_CREDENTIAL`, so turning it on is
+  configuration rather than code. coturn on the existing DigitalOcean droplet is
+  the plan. **This is the one thing between "works for most people" and "works".**
+- **Ringing only reaches you inside that conversation.** `watchForCalls` is
+  scoped to the chat on screen, because listening everywhere means one open
+  channel per conversation, permanently. A missed call is currently silent — no
+  notification, no record.
+- **Video.** Deliberately deferred: audio first, and `getUserMedia` asks for the
+  microphone only, because requesting a camera the app will not use is the
+  prompt people refuse.
+- **Group calls need an SFU.** Mesh peer-to-peer collapses past ~4 participants,
+  so the call button is hidden for groups rather than present and broken.
+  LiveKit or Daily remains the sane answer if group calls are ever wanted — and
+  note an SFU sees the media, so group calls would NOT inherit the end-to-end
+  property 1:1 calls get for free.
+- **The `calls` table still only records that a call happened.** No duration, no
+  outcome, nothing in the thread. Missed-call history would go here.
 
 ## 2. Earnings — DROPPED, 2026-08-09
 

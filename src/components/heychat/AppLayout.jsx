@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import ConversationList from './ConversationList';
 import BottomNav from './BottomNav';
+import CallBar from './CallBar';
 import { syncPushSubscription } from '@/lib/push/client';
 import { primeAudio } from '@/lib/sound';
 import { refreshPending } from '@/lib/pending';
@@ -138,6 +139,10 @@ export default function AppLayout() {
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-background overflow-hidden">
+      {/* Above the layout, not inside a screen: a call has to outlive the page
+          it started on, so hanging up still works after navigating away. */}
+      <CallBar />
+
       {/* min-w-0 stops long message text from forcing this column wider than
           the viewport and pushing the sidebar off-screen. */}
       <div

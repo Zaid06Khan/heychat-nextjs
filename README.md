@@ -4,9 +4,11 @@ Self-hosted port of the Base44 HeyChat prototype (renamed Calamuse on
 2026-08-16), on a Postgres database and
 auth you control.
 
-**Read `FOLLOWUPS.md` before shipping.** The short version: **video calls have
-never worked** and the entry point is hidden, and **there is no end-to-end
-encryption** — message bodies are readable by the server. Push notifications
+**Read `FOLLOWUPS.md` before shipping.** The short version: **1:1 audio calls
+work, but there is no TURN relay yet**, so roughly 15–20% of networks cannot
+connect one — and video and group calls do not exist. **There is no end-to-end
+encryption of messages** — bodies are readable by the server, though calls are
+end-to-end encrypted by WebRTC itself. Push notifications
 *do* work now (§10), and the watch-and-earn feature was **removed** in `0007`
 (§2). All migrations through `0021` are applied as of 2026-08-16;
 `npm run db:status` is the authority.
@@ -45,6 +47,7 @@ supabase/migrations/0021_service_role_grants.sql service_role grants 0016/19/20 
 supabase/migrations/0022_recovery_password_status.sql  "do I have a recovery password?"
 supabase/migrations/0023_conversation_hides.sql  delete chat (for you only)
 supabase/migrations/0024_group_invites_realtime.sql  group invites on the live feed
+supabase/migrations/0025_call_channels.sql       authorise call signalling
 ```
 
 > `0005` then `0007` on a fresh database is a build-then-demolish, which looks

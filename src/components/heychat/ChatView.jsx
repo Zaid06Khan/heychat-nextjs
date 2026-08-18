@@ -16,9 +16,10 @@ import {
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { hideConversation, getConversationHides } from '@/lib/conversations';
 import { playSentSound } from '@/lib/sound';
+import { startCall, watchForCalls, getCallState } from '@/lib/calls/controller';
 import { createTypingChannel } from '@/lib/messages/typing';
 import { markRead } from '@/lib/unread';
-import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle, Trash2, Phone } from 'lucide-react';
 import Avatar from './Avatar';
 import MessageBubble from './MessageBubble';
 import MessageInput from './MessageInput';
@@ -123,6 +124,33 @@ export default function ChatView() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  /**
+   * Listen for ringing in this conversation.
+   *
+   * Scoped to the conversation on screen for now. Listening across every
+   * conversation would mean holding one channel open per conversation
+   * permanently, which is a real cost — so a call currently reaches you if you
+   * are in that chat. See FOLLOWUPS.
+   */
+  useEffect(() => {
+    if (!conversationId || !session?.id) return undefined;
+    if (conversation && conversation.type !== 'direct') return undefined;
+
+    let dispose = () => {};
+    let cancelled = false;
+    (async () => {
+      const stop = await watchForCalls({
+        conversationId,
+        meId: session.id,
+        peerName: otherUser?.display_name || otherUser?.username || 'Someone',
+      });
+      if (cancelled) stop();
+      else dispose = stop;
+    })();
+
+    return () => { cancelled = true; dispose(); };
+  }, [conversationId, session?.id, otherUser?.id, conversation?.type]);
 
   const loadConversation = async () => {
     try {
@@ -470,6 +498,25 @@ export default function ChatView() {
             themselves. Shipping a button that looks like it works is worse
             than not having one. The /call route still exists so the screen can
             be developed against; see FOLLOWUPS.md §1. */}
+        {/* The call button is back, and this time it is attached to something.
+            Direct conversations only — group calls need an SFU (FOLLOWUPS §1),
+            and a button that rings nobody is what was removed before. */}
+        {conversation?.type === 'direct' && (
+          <button
+            onClick={() =>
+              startCall({
+                conversationId,
+                meId: session.id,
+                peerName: otherUser?.display_name || otherUser?.username || 'Someone',
+              })
+            }
+            disabled={getCallState().status !== 'idle'}
+            aria-label={`Call ${otherUser?.display_name || otherUser?.username || 'them'}`}
+            className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition disabled:opacity-40"
+          >
+            <Phone className="w-5 h-5" />
+          </button>
+        )}
         <button onClick={() => setShowReport(true)} className="w-9 h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition">
           <Flag className="w-5 h-5" />
         </button>
