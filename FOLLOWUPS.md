@@ -184,6 +184,14 @@ visibility check is doing real work. §7e drives the no-camera path end to end.
   message previews does not — that is about your words on a lock screen, not
   about whether you find out someone is calling.
 
+  **A late joiner is also given the caller's ICE candidates.** Re-sending the
+  offer alone is not enough: by the time somebody taps a notification the
+  caller has finished gathering and `onicecandidate` will never fire again, so
+  they would hold an SDP with no route back. On one machine ICE can still limp
+  to a connection from the answerer's candidates alone — which is why this
+  failed intermittently rather than always, and why it would fail far more
+  often across real networks. Candidates are kept and replayed.
+
   **Still missing: there is no missed-call record.** The notification is the
   only trace, and once it is dismissed the call leaves nothing behind. That
   needs the `calls` table to hold an outcome — see the last bullet in this

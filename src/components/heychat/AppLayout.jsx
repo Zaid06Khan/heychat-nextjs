@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import ConversationList from './ConversationList';
 import BottomNav from './BottomNav';
+import InstallPrompt from './InstallPrompt';
 import CallBar from './CallBar';
 import { syncPushSubscription } from '@/lib/push/client';
 import { primeAudio } from '@/lib/sound';
@@ -138,10 +139,19 @@ export default function AppLayout() {
   const onHome = location.pathname === '/home';
 
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-background overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen h-[100dvh] bg-background overflow-hidden">
       {/* Above the layout, not inside a screen: a call has to outlive the page
           it started on, so hanging up still works after navigating away. */}
       <CallBar />
+
+      {/* IN THE SHELL, NOT BESIDE THE ROUTER. It used to render on every screen
+          including Login and Register, where there is no nav for it to sit
+          above — so it floated over the form and covered the primary button.
+          Inside here it only appears once someone is actually using the app,
+          which is also when installing starts being worth anything: the pitch
+          is notifications and a home-screen icon, and neither means much to
+          somebody who has not signed in yet. */}
+      <InstallPrompt />
 
       {/* min-w-0 stops long message text from forcing this column wider than
           the viewport and pushing the sidebar off-screen. */}

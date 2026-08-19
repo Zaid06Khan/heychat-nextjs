@@ -327,6 +327,32 @@ The `heychat_session` entry in localStorage is a **cache** so components can rea
 session is a signed JWT in an httpOnly cookie, and Postgres RLS checks that JWT
 on every query. Editing the localStorage value achieves nothing.
 
+### Installed as an app
+
+`public/manifest.json` is a standalone, portrait PWA with 192/512 icons plus a
+maskable variant, all generated from `assets/logo-master.png` by
+`scripts/build-icons.mjs`. `theme_color` is Paper (the app's own background) and
+`background_color` is Ink, which is the splash ground the gold shield sits on.
+
+Three details that are easy to get wrong and are already handled:
+
+- **Both capable meta tags.** Next emits the standardised
+  `mobile-web-app-capable`; Safari before iOS 15.4 only understands
+  `apple-mobile-web-app-capable`, and without it the home-screen icon opens a
+  browser tab instead of a full-screen app. `layout.jsx` emits both.
+- **Safe-area insets.** `viewport-fit=cover` means the app paints under the
+  notch and the home indicator, so the bottom nav pads itself with
+  `env(safe-area-inset-bottom)` — without it the nav labels sit under the
+  indicator on any modern iPhone.
+- **The cold-start screen is server-rendered.** `ssr: false` still renders the
+  `loading` component into the first HTML, so a launched PWA opens on the mark
+  and the name rather than a blank page. See `src/app/client-app.jsx`.
+
+`InstallPrompt` lives in `AppLayout`, not beside the router, so it never covers
+an auth screen's primary button. On iOS it shows the Share → Add to Home Screen
+instructions instead of a button, because Safari has no programmatic install and
+`beforeinstallprompt` never fires there.
+
 ### Why `src/pages` became `src/screens`
 
 Next.js reserves `src/pages` for the Pages Router and tried to serve

@@ -35,7 +35,20 @@ export const metadata = {
   appleWebApp: {
     capable: true,
     title: 'Calamus3',
+    // NOT 'black-translucent'. That one lets the page paint under the status
+    // bar, which looks more native only if every screen also pads itself by
+    // env(safe-area-inset-top) — and none of them do, so the clock would sit on
+    // top of the chat header. 'default' keeps the bar reserved, and dark text
+    // on it is correct against a Paper-coloured app.
     statusBarStyle: 'default',
+  },
+  other: {
+    // `appleWebApp.capable` emits the STANDARDISED `mobile-web-app-capable`,
+    // which is right — but Safari before iOS 15.4 only understands the
+    // apple-prefixed spelling, and without it those versions open the app in a
+    // browser tab from the home screen instead of full-screen. Emitting both
+    // costs one tag.
+    'apple-mobile-web-app-capable': 'yes',
   },
 };
 

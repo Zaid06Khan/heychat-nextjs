@@ -21,7 +21,6 @@ import { applyDirection } from '@/lib/i18n';
 applyDirection();
 import AuthGuard from '@/components/heychat/AuthGuard';
 import AppLayout from '@/components/heychat/AppLayout';
-import InstallPrompt from '@/components/heychat/InstallPrompt';
 
 const AuthenticatedApp = () => {
   const { isLoadingPublicSettings } = useAuth();
@@ -68,7 +67,6 @@ function App() {
           <AuthenticatedApp />
         </Router>
         <Toaster />
-        <InstallPrompt />
       </QueryClientProvider>
     </AuthProvider>
   )

@@ -54,6 +54,9 @@ let watchToken = 0;
 // One retry of the offer, and the offer being retried. See sendOffer().
 let offerRetryTimer = null;
 let lastOffer = null;
+// Every ICE candidate this side has produced, kept so a late joiner can be
+// given the ones it was not around to hear. See the `ring-request` handler.
+let localCandidates = [];
 // Candidates that arrive before setRemoteDescription cannot be added yet.
 let pendingCandidates = [];
 
@@ -102,6 +105,7 @@ function cleanup() {
   clearTimeout(offerRetryTimer);
   offerRetryTimer = null;
   lastOffer = null;
+  localCandidates = [];
   pendingCandidates = [];
 
   if (localStream) {
@@ -213,7 +217,13 @@ function newPeerConnection() {
   const peer = new RTCPeerConnection(getIceConfig());
 
   peer.onicecandidate = (e) => {
-    if (e.candidate) send('ice', { candidate: e.candidate.toJSON() });
+    if (!e.candidate) return;
+    const candidate = e.candidate.toJSON();
+    // Kept as well as sent. `onicecandidate` fires once per candidate and never
+    // again, so anyone who subscribes after gathering has finished would
+    // otherwise get the offer and no way to reach us.
+    localCandidates.push(candidate);
+    send('ice', { candidate });
   };
 
   peer.ontrack = (e) => {
@@ -669,6 +679,15 @@ async function onSignal(payload, meId) {
       // the retry in sendOffer covers.
       if (state.status === 'calling' && lastOffer) {
         send('offer', { sdp: lastOffer.sdp, video: lastOffer.video, retry: true });
+
+        // AND THE CANDIDATES, which is the part that is easy to miss. By the
+        // time somebody taps a notification, this side has finished gathering
+        // and `onicecandidate` will never fire again — so re-sending only the
+        // offer leaves them holding an SDP with no route back to us. On one
+        // machine ICE can still limp to a connection from their candidates
+        // alone, which is exactly why this failed intermittently rather than
+        // always, and would fail far more often across real networks.
+        for (const candidate of localCandidates) send('ice', { candidate });
       }
       break;
     }

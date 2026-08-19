@@ -28,7 +28,14 @@ export default function BottomNav({ className = '' }) {
   const pending = usePendingCount();
 
   return (
-    <nav className={`px-2 pt-2 pb-3 border-t-2 border-foreground bg-background flex items-center justify-around ${className}`}>
+    <nav
+      className={`px-2 pt-2 border-t-2 border-foreground bg-background flex items-center justify-around ${className}`}
+      // THE HOME INDICATOR SITS HERE. `viewport-fit=cover` lets the app paint
+      // the full screen, which on a notched phone means the bar underneath is
+      // ours to avoid — without this the labels sit beneath it. `max` keeps the
+      // original 0.75rem on every device that has no inset to report.
+      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+    >
       {ITEMS.map(({ to, icon: Icon, label }) => {
         const active = location.pathname === to;
         return (
