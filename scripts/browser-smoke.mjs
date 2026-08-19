@@ -711,6 +711,48 @@ try {
   });
   await A.waitForTimeout(1500);
 
+  console.log('\n--- 7f. A CALL THAT ARRIVES WHILE YOU ARE SOMEWHERE ELSE ---');
+  // The half of call notifications that can actually be tested here.
+  //
+  // Push DELIVERY cannot: headless Chromium reports Notification.permission as
+  // "denied" and will not subscribe. What can be tested is the part that makes
+  // a tapped notification worth anything — whether opening the conversation
+  // AFTER the call was placed still surfaces it. Realtime never replays a
+  // broadcast to a subscriber who was not there, so without `ring-request` the
+  // tap would land you in a silent chat while the caller listened to ringback.
+  await B.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
+  check(await seen(B, 'input[placeholder="Search by username..."]', 15000),
+    'B is somewhere else entirely');
+
+  await A.locator('button[aria-label^="Call "]').first().click();
+  // Long enough for the offer AND its one 2s retry to go unheard.
+  await A.waitForTimeout(4000);
+
+  check(await A.locator('button[aria-label="Hang up"]').isVisible(),
+    'the caller is ringing');
+  check(!(await B.locator('text=Incoming call').isVisible().catch(() => false)),
+    'and B, not being in the conversation, has heard nothing over realtime');
+
+  // The notification tap, in effect: B lands in the conversation.
+  await intoChat(B, userA);
+  check(await seen(B, 'text=Incoming call', 20000),
+    'opening the conversation surfaces the call that was already ringing');
+
+  await B.locator('button[aria-label="Accept call"]').click();
+  check(await seen(A, 'button[aria-label="Mute"]', 30000),
+    'and answering it connects a real call');
+
+  await A.locator('button[aria-label="Hang up"]').click();
+  check(await gone(B, 'button[aria-label="Hang up"]', 10000), 'and hanging up clears both sides');
+  await A.waitForTimeout(1500);
+
+  // The ask is unconditional, so it has to be silent when nobody is calling —
+  // otherwise every conversation you open would flash an incoming call.
+  await intoChat(B, userA);
+  await B.waitForTimeout(2500);
+  check(!(await B.locator('text=Incoming call').isVisible().catch(() => false)),
+    'and opening a conversation with nobody calling stays quiet');
+
   console.log('\n--- 7b. A THREAD LONGER THAN THE LOAD LIMIT ---');
   // ChatView loads 200 messages. It used to take them ASCENDING, which is the
   // OLDEST 200 — so past that length a conversation showed the first 200

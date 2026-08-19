@@ -59,7 +59,7 @@ export function isPushConfigured() {
  *
  * @returns {Promise<{ sent: number, failed: number, pruned: number, skipped?: string }>}
  */
-export async function sendPushToAccounts(accountIds, payload) {
+export async function sendPushToAccounts(accountIds, payload, options = {}) {
   if (!ensureConfigured()) return { sent: 0, failed: 0, pruned: 0, skipped: 'not-configured' };
 
   const ids = [...new Set((accountIds || []).filter(Boolean))];
@@ -74,6 +74,14 @@ export async function sendPushToAccounts(accountIds, payload) {
   if (error || !subs?.length) return { sent: 0, failed: 0, pruned: 0 };
 
   const body = JSON.stringify(payload);
+
+  // A DAY IS RIGHT FOR A MESSAGE AND WRONG FOR A RING. A message is still worth
+  // reading when the phone comes back online an hour later; a call notification
+  // delivered after the caller gave up is worse than none, because it invites
+  // someone to answer a call that no longer exists. Callers that are
+  // time-critical pass their own TTL and urgency — see notifyForCall.
+  const ttl = Number.isFinite(options.ttl) ? options.ttl : 60 * 60 * 24;
+  const urgency = options.urgency || 'normal';
   const dead = [];
   const delivered = [];
   let failed = 0;
@@ -86,7 +94,7 @@ export async function sendPushToAccounts(accountIds, payload) {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           body,
-          { TTL: 60 * 60 * 24 }
+          { TTL: ttl, urgency }
         );
         delivered.push(sub.id);
       } catch (err) {

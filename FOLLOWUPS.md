@@ -159,10 +159,35 @@ visibility check is doing real work. §7e drives the no-camera path end to end.
   `NEXT_PUBLIC_TURN_URL` / `_USERNAME` / `_CREDENTIAL`, so turning it on is
   configuration rather than code. coturn on the existing DigitalOcean droplet is
   the plan. **This is the one thing between "works for most people" and "works".**
-- **Ringing only reaches you inside that conversation.** `watchForCalls` is
-  scoped to the chat on screen, because listening everywhere means one open
-  channel per conversation, permanently. A missed call is currently silent — no
-  notification, no record.
+- ~~**Ringing only reaches you inside that conversation.**~~ **Fixed
+  2026-08-18 with push.** `watchForCalls` is still scoped to the chat on screen
+  — listening everywhere would mean one channel per conversation, permanently —
+  but a call no longer depends on it. `POST /api/calls/ring` sends a Web Push
+  the moment the offer goes out, so a call reaches a closed app.
+
+  Tapping it opens the conversation, and **`ring-request` is what makes that
+  worth anything**: Realtime never replays a broadcast to a subscriber who was
+  not there, so the offer sent thirty seconds ago is gone. Opening a
+  conversation now asks "is anyone ringing?", and a caller still waiting
+  re-sends the offer. Unconditional, because the answer is free when nobody is.
+
+  **It does NOT auto-answer.** A notification tap is consent to look at the
+  call, not to open a microphone — and answering should stay a deliberate act.
+  You get the ordinary incoming-call UI with Accept and Decline.
+
+  Three things the ring deliberately does differently from a message push: a
+  50-second TTL just past the ring timeout, so a phone that comes back online
+  late does not offer a call that ended; `urgency: 'high'`, so the push service
+  does not batch it; and its own notification tag with `requireInteraction`, so
+  a message arriving mid-ring cannot replace the one notification that is only
+  useful for the next forty seconds. Mutes and blocks still apply. Hiding
+  message previews does not — that is about your words on a lock screen, not
+  about whether you find out someone is calling.
+
+  **Still missing: there is no missed-call record.** The notification is the
+  only trace, and once it is dismissed the call leaves nothing behind. That
+  needs the `calls` table to hold an outcome — see the last bullet in this
+  section.
 - **Escalating an audio call to video mid-call.** The one part of video not
   built. It needs renegotiation with glare handling (both sides offering at
   once); the "perfect negotiation" pattern is the known answer. Today you hang

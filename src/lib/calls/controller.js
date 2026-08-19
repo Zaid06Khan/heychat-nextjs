@@ -46,6 +46,11 @@ let channelTopic = null;  // which conversation `channel` is joined to
 // decides whether ending a call may close the channel — see cleanup().
 let watching = false;
 let ringTimer = null;
+// One in-flight openChannel, shared. See the comment on openChannel.
+let channelOpening = null;
+let channelOpeningTopic = null;
+// Which watchForCalls call currently owns the listening channel. See below.
+let watchToken = 0;
 // One retry of the offer, and the offer being retried. See sendOffer().
 let offerRetryTimer = null;
 let lastOffer = null;
@@ -263,8 +268,31 @@ function newPeerConnection() {
  * connected, which is exactly what made it easy to miss.
  */
 async function openChannel(conversationId, meId) {
-  if (channel && channelTopic === `call:${conversationId}`) return channel;
+  const wanted = `call:${conversationId}`;
+  if (channel && channelTopic === wanted) return channel;
 
+  // CONCURRENT CALLERS MUST SHARE ONE JOIN, not race to create two channels.
+  //
+  // The guard above only helps once `channel` has been assigned, which is after
+  // the join completes. `watchForCalls` runs on mount and `startCall` runs on a
+  // click, so the two overlap routinely — and once joining became something
+  // that takes time rather than returning immediately, that window was wide
+  // enough to open a second channel on the same topic every time. supabase-js
+  // refuses to subscribe the same topic twice, so calls stopped working
+  // outright. Sharing the promise closes the window that the slow join opened.
+  if (channelOpening && channelOpeningTopic === wanted) return channelOpening;
+
+  channelOpeningTopic = wanted;
+  channelOpening = joinChannel(conversationId, meId, wanted);
+  try {
+    return await channelOpening;
+  } finally {
+    channelOpening = null;
+    channelOpeningTopic = null;
+  }
+}
+
+async function joinChannel(conversationId, meId, topic) {
   const supabase = getSupabaseBrowserClient();
 
   // The socket needs this user's token before Realtime can authorise a private
@@ -275,13 +303,41 @@ async function openChannel(conversationId, meId) {
     try { await supabase.realtime.setAuth(token); } catch { /* older client */ }
   }
 
-  const topic = `call:${conversationId}`;
   const ch = supabase.channel(topic, {
     config: { private: true, broadcast: { self: false } },
   });
   ch.on('broadcast', { event: 'signal' }, ({ payload }) => onSignal(payload, meId));
-  await ch.subscribe();
+
+  // WAIT FOR THE JOIN, DO NOT JUST AWAIT subscribe().
+  //
+  // `subscribe()` returns the channel, not a promise, so `await` on it resolves
+  // on the next tick with the join still in flight — and a broadcast sent to a
+  // channel that has not joined is dropped on the floor, silently. The offer
+  // survived that only because sendOffer retries after two seconds;
+  // `ring-request` had no retry and vanished every time, so opening a
+  // conversation never surfaced the call that was already ringing in it.
+  await new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    // Never hang. A channel that cannot join should fail the call rather than
+    // freeze the screen that opened it.
+    const timer = setTimeout(done, 5000);
+    ch.subscribe((status) => {
+      if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        clearTimeout(timer);
+        done();
+      }
+    });
+  });
+
   channelTopic = topic;
+  // Assigned here as well as by the caller, so the fast path above sees it the
+  // moment the join lands rather than one await later.
+  channel = ch;
   return ch;
 }
 
@@ -310,6 +366,27 @@ function sendOffer(sdp, video) {
     if (state.status !== 'calling' || !lastOffer) return;
     send('offer', { sdp: lastOffer.sdp, video: lastOffer.video, retry: true });
   }, 2000);
+}
+
+/**
+ * Ask the server to push a ring to the other person.
+ *
+ * Fire-and-forget by design. This is the path that reaches a closed app; the
+ * Realtime offer is the path that reaches an open one, and neither waits for
+ * the other. A failure here is silent because there is nothing the caller could
+ * do about it and the call may well connect anyway.
+ */
+function ringByPush(conversationId, video) {
+  try {
+    fetch('/api/calls/ring', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversation_id: conversationId, video: Boolean(video) }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    /* offline, or fetch unavailable */
+  }
 }
 
 /** Start an outgoing call. `video: true` makes it a video call. */
@@ -362,6 +439,12 @@ export async function startCall({ conversationId, meId, peerName, video = false 
     // The flag rides along so the other phone can say "Incoming video call"
     // before anyone has answered. The SDP knows too, but not until it is parsed.
     sendOffer(offer, video);
+
+    // AND THE OTHER HALF: a push, for the far more common case where they are
+    // not sitting in this conversation. The Realtime offer above only reaches
+    // somebody whose channel is open. Deliberately not awaited — the ringback
+    // should start now, and a push that fails must not fail the call.
+    ringByPush(conversationId, video);
     // Ringback: your own phone telling you it is trying. Started only after the
     // offer is actually sent, so it never rings for a call that failed to leave.
     startRinging('outgoing');
@@ -574,6 +657,22 @@ async function onSignal(payload, meId) {
       break;
     }
 
+    case 'ring-request': {
+      // Somebody just opened this conversation and is asking whether anything
+      // is ringing. THIS IS WHAT MAKES THE NOTIFICATION WORK: they were not
+      // subscribed when the offer went out, and Realtime never replays a
+      // broadcast, so without an answer here tapping the notification would
+      // land them in a silent chat while the caller sat listening to ringback.
+      //
+      // Only a caller still waiting replies, so this costs nothing the rest of
+      // the time — and it is also a second safety net for the subscribe race
+      // the retry in sendOffer covers.
+      if (state.status === 'calling' && lastOffer) {
+        send('offer', { sdp: lastOffer.sdp, video: lastOffer.video, retry: true });
+      }
+      break;
+    }
+
     case 'camera': {
       publish({ ...state, peerCameraOn: Boolean(payload.on) });
       break;
@@ -641,13 +740,40 @@ async function onSignal(payload, meId) {
  */
 export async function watchForCalls({ conversationId, meId, peerName }) {
   if (state.status !== 'idle') return () => {};
-  if (channel && channelTopic === `call:${conversationId}`) return () => {};
+
+  /**
+   * WHOEVER STARTED LAST OWNS THE CHANNEL, and only the owner may close it.
+   *
+   * ChatView's effect re-runs whenever `otherUser` resolves, so the second run
+   * routinely overlaps the first. The old code guarded with "a channel for this
+   * topic already exists, do nothing" and handed back a no-op cleanup — which
+   * was survivable only while joining was instant. Once the join took real
+   * time, the sequence became: run 1 joins slowly, React tears run 1 down, run
+   * 2 sees the channel run 1 just created and returns a no-op, and then run 1's
+   * late cleanup CLOSES the channel run 2 is relying on. The listener went
+   * quiet and every call rang out against nobody.
+   *
+   * A token fixes it without reference counting: a cleanup that no longer owns
+   * the watch does nothing at all.
+   */
+  const myToken = ++watchToken;
 
   publish({ status: 'idle', conversationId, meId, peerName });
   watching = true;
-  channel = await openChannel(conversationId, meId);
+  await openChannel(conversationId, meId);
+
+  // Superseded while the join was in flight. The newer watcher owns the channel
+  // now and will do its own asking.
+  if (watchToken !== myToken) return () => {};
+
+  // "Is anyone ringing?" Sent on every open, because the answer is free when
+  // nobody is and it is the only way a call placed before this channel existed
+  // can still be answered — which is exactly what happens when someone taps a
+  // call notification.
+  send('ring-request');
 
   return () => {
+    if (watchToken !== myToken) return;
     watching = false;
     // Only if nothing is happening. Leaving a conversation mid-call must not
     // take the signalling with it, or hanging up never reaches the other side.
