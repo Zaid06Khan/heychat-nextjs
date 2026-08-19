@@ -15,6 +15,7 @@ import Home from './screens/Home';
 import Chat from './screens/Chat';
 import Contacts from './screens/Contacts';
 import Settings from './screens/Settings';
+import AdminReports from './screens/AdminReports';
 import Profile from './screens/Profile';
 import Call from './screens/Call';
 import { applyDirection } from '@/lib/i18n';
@@ -45,6 +46,9 @@ const AuthenticatedApp = () => {
           <Route path="/chat/:conversationId" element={<Chat />} />
           <Route path="/contacts" element={<Contacts />} />
           <Route path="/settings" element={<Settings />} />
+          {/* Guarded on the server, not here: both endpoints answer 404 to a
+              non-admin, so this renders an empty "Not found" for anyone else. */}
+          <Route path="/admin/reports" element={<AdminReports />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
         {/* Guarded like everything else, but outside AppLayout — a call is a

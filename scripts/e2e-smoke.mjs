@@ -928,7 +928,133 @@ check(!bobLeaveErr, 'the last member can leave too', bobLeaveErr?.message || '')
 const { data: goneGroup } = await admin.from('conversations').select('id').eq('id', group.id);
 check((goneGroup || []).length === 0, 'and the empty group is deleted');
 
+console.log('\n--- 14. MODERATION ---');
+// Reports have been written since 0001 and nothing ever read them: no queue, no
+// admin, no way to act on one. 0027 is the other half, and the BOUNDARIES are
+// what matter most — a moderation surface any signed-in user can reach is worse
+// than none, because it looks like oversight while handing out the controls.
+
+const { data: filedReport } = await A.from('reports').insert({
+  reporter_id: aliceId,
+  reported_id: bobId,
+  reported_username: bob,
+  reason: 'harassment',
+  description: 'e2e moderation fixture',
+  status: 'pending',
+}).select().single();
+check(Boolean(filedReport), 'a user can file a report');
+
+// RLS first, because that is the boundary the routes lean on.
+const { data: bobsView } = await B.from('reports').select('id').eq('id', filedReport.id);
+check((bobsView || []).length === 0,
+  'the person reported cannot see the report about them');
+
+const { data: aliceClosed } = await A.from('reports')
+  .update({ status: 'dismissed' }).eq('id', filedReport.id).select();
+check((aliceClosed || []).length === 0,
+  'and the reporter cannot close their own report');
+
+const { data: sneakyRole } = await A.from('accounts')
+  .update({ role: 'admin' }).eq('id', aliceId).select();
+check((sneakyRole || []).length === 0 || sneakyRole[0]?.role !== 'admin',
+  'a user cannot promote themselves to admin');
+
+// Nobody is an admin yet, so the queue must open for no one.
+const queueAsUser = await fetch(APP + '/api/admin/reports?status=pending', {
+  headers: { cookie: bobCookie },
+});
+check(queueAsUser.status === 404,
+  'a non-admin gets 404 from the reports queue, not an empty list',
+  `status=${queueAsUser.status}`);
+
+const actAsUser = await fetch(APP + '/api/admin/moderate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', cookie: bobCookie },
+  body: JSON.stringify({ report_id: filedReport.id, action: 'dismissed' }),
+});
+check(actAsUser.status === 404, 'and cannot action one either',
+  `status=${actAsUser.status}`);
+
+// Now a real moderator. carol is promoted directly, the way the operator would
+// be — there is deliberately no in-app way to grant this.
+await admin.from('accounts').update({ role: 'admin' }).eq('id', carolId());
+const modCookie = await cookieLogin(carol);
+
+const queue = await fetch(APP + '/api/admin/reports?status=pending', {
+  headers: { cookie: modCookie },
+});
+const queueJson = await queue.json().catch(() => null);
+check(queue.status === 200, 'an admin can open the queue', `status=${queue.status}`);
+check((queueJson?.reports || []).some((r) => r.id === filedReport.id),
+  'and the pending report is in it');
+check(
+  (queueJson?.reports || []).find((r) => r.id === filedReport.id)?.reported?.username === bob,
+  'carrying the reported account, so the moderator knows who it is about'
+);
+
+// Suspend, and check it actually costs the account something.
+const suspend = await fetch(APP + '/api/admin/moderate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', cookie: modCookie },
+  body: JSON.stringify({
+    report_id: filedReport.id,
+    subject_id: bobId,
+    action: 'suspended',
+    note: 'e2e',
+  }),
+});
+check(suspend.status === 200, 'the admin can suspend the reported account',
+  `status=${suspend.status}`);
+
+const { data: afterSuspend } = await admin
+  .from('accounts').select('suspended_at').eq('id', bobId).maybeSingle();
+check(Boolean(afterSuspend?.suspended_at), 'the account is marked suspended');
+
+const { data: reportAfter } = await admin
+  .from('reports').select('status').eq('id', filedReport.id).maybeSingle();
+check(reportAfter?.status === 'actioned', 'and the report is closed as actioned',
+  `status=${reportAfter?.status}`);
+
+// THE PART THAT MAKES IT REAL. A suspension that does not stop a login is a
+// note in a database.
+const suspendedLogin = await post('/api/auth/login', { username: bob, password: PW });
+check(suspendedLogin.status === 403,
+  'a suspended account cannot log in', `status=${suspendedLogin.status}`);
+check(/suspended/i.test(suspendedLogin.json?.error || ''),
+  'and is told why rather than being shown a wrong-password error',
+  suspendedLogin.json?.error);
+
+// Every decision is recorded, including who made it.
+const { data: audit } = await admin
+  .from('moderation_actions').select('*').eq('subject_id', bobId);
+check((audit || []).some((a) => a.action === 'suspended' && a.moderator_id === carolId()),
+  'the decision is recorded against the moderator who made it');
+
+// And it can be undone.
+const unsuspend = await fetch(APP + '/api/admin/moderate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', cookie: modCookie },
+  body: JSON.stringify({ subject_id: bobId, action: 'unsuspended' }),
+});
+check(unsuspend.status === 200, 'and can unsuspend', `status=${unsuspend.status}`);
+
+const restored = await post('/api/auth/login', { username: bob, password: PW });
+check(restored.status === 200, 'after which the account logs in again',
+  `status=${restored.status}`);
+
+// An admin suspending themselves would lock the only moderator out with nobody
+// left able to undo it.
+const selfSuspend = await fetch(APP + '/api/admin/moderate', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', cookie: modCookie },
+  body: JSON.stringify({ subject_id: carolId(), action: 'suspended' }),
+});
+check(selfSuspend.status === 400, 'an admin cannot suspend themselves',
+  `status=${selfSuspend.status}`);
+
 console.log(`\n=========== ${pass} passed, ${fail} failed ===========\n`);
+
+
 
 // cleanup
 //

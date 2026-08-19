@@ -13,7 +13,8 @@
     "push:keys": "node scripts/generate-vapid.mjs",
     "push:test": "node scripts/push-test.mjs",
     "test:e2e": "node scripts/e2e-smoke.mjs",
-    "test:browser": "node scripts/browser-smoke.mjs"
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "admin:grant": "node scripts/grant-admin.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

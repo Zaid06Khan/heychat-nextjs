@@ -28,6 +28,7 @@ the four DONE sections below each carry gaps that are still open.
 | 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window |
 | 11 | DONE | Replies, reactions, edit, delete, typing | 0016/0017/0020 applied. Gaps: notification not cleared on delete, read race, no optimistic send |
 | 12 | DONE | Unread counts | Gap: mutes still count (the four-badge double-mount is fixed) |
+| 14 | DONE | Moderation: queue, suspension, audit trail | Gaps: reported content untouched, no appeal path |
 | 13 | DONE | Group management | 0019 applied. Gaps: no audit trail, admin is a single point of failure |
 
 ---
@@ -452,6 +453,59 @@ section's old text as the last `base44.auth` caller, no longer exists.
 - **Screens are still client-side React Router**, mounted under the catch-all.
   Retiring the shim was a prerequisite for moving them to real App Router routes,
   not the move itself.
+
+## 14. Moderation — DONE, 2026-08-19
+
+Reports have been written since 0001 and **nothing ever read them**. There was no
+queue, no admin — every account was `role = 'user'`, so `is_admin()` had never
+once returned true — and no way to do anything to an account even if someone had
+looked. Reporting filed paperwork into a drawer with no handle. Both stores
+expect a review process for user-generated content.
+
+`0027_moderation.sql` adds suspension, an index for the queue, and a
+`moderation_actions` audit table. `/admin/reports` is the queue; the two routes
+behind it are `GET /api/admin/reports` and `POST /api/admin/moderate`.
+
+**Four actions, and the difference is deliberate.** `dismissed` (nothing was
+wrong), `reviewed` (looked at, no action), `suspended` (closes the report as
+`actioned`), `unsuspended`. Every one writes to `moderation_actions` **before**
+it takes effect, so an action that fails halfway still leaves a record that it
+was attempted.
+
+**A non-admin gets 404, not 403 and not an empty list.** There is no reason to
+confirm to a stranger that a moderation surface exists.
+
+**0028 exists because the role was unreachable.** `accounts_protect_role` (0002)
+refused any change to `accounts.role` unless `is_admin()`, and `is_admin()` is
+false for the service role too — it keys off `auth.uid()`, which a service-role
+request does not have. With no admin in the table it was false for everyone, so
+**the first admin could never be created, by anyone, from anywhere.** Invisible
+until something tried to use the role. The trigger now skips when there is no
+`auth.uid()`; a signed-in user still cannot touch the column, and the e2e suite
+asserts that directly. `npm run admin:grant -- <username>` is the only way in,
+on purpose: an app that can promote its own users has an escalation surface.
+
+### What suspension actually does
+
+Sets `suspended_at`, which the login route refuses a session for, and revokes
+refresh tokens so no existing session can renew. **The access token already in a
+browser stays valid until it expires — usually an hour.** Closing that gap means
+a database read in front of every query in the app. The moderation screen says
+so rather than implying the door slams instantly.
+
+The login check happens **after** the password, not before: checking first would
+answer "is this account suspended" to anyone who typed a username.
+
+### Still open
+
+- **Nothing is done to the reported content.** Suspension stops the account;
+  the messages it already sent stay where they are. Deleting them is a bigger
+  decision — the other party's copy is theirs too (see §9 on why nobody can
+  delete a direct conversation).
+- **No appeal path.** A suspended person is told they are suspended and why,
+  and has nowhere to reply.
+- **One admin is a single point of failure**, and cannot suspend themselves,
+  which is a guard rather than a plan.
 
 ## 9. Smaller items
 

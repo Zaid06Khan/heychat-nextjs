@@ -30,11 +30,12 @@ The three that shape most decisions:
 npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
-npm run test:e2e -- http://localhost:3000       # 120 assertions, backend boundaries
+npm run test:e2e -- http://localhost:3000       # 138 assertions, backend boundaries
 npm run test:browser -- http://localhost:3000   # 123 assertions, real UI, 3 contexts
 npm run db:plan        # migrations in order — needs no database
 npm run db:status      # what is applied, what is pending
 npm run push:keys      # print VAPID env lines
+npm run admin:grant -- <username>   # the only way to grant moderator access
 npm run push:test -- <username>
 ```
 
@@ -106,7 +107,7 @@ src/lib/conversations.js   │  (§8 — the shim was deleted 2026-08-18)
 src/lib/messages/          │
 src/lib/reports.js        ─┘
 src/lib/supabase/         browser / route-handler / service-role clients
-supabase/migrations/      the database, 0001–0026
+supabase/migrations/      the database, 0001–0028
 ```
 
 ### Three Supabase clients, on purpose

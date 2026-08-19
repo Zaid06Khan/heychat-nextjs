@@ -59,6 +59,34 @@ export async function POST(request) {
 
   const userId = signIn.user.id;
 
+  // SUSPENDED ACCOUNTS ARE REFUSED HERE, AFTER THE PASSWORD, NOT BEFORE IT.
+  //
+  // Checking first would answer "is this account suspended" to anyone who typed
+  // a username, which is a fact about somebody else's account handed to a
+  // stranger. Checking after means only the person who actually knows the
+  // password learns it — and they are the one entitled to know why they cannot
+  // get in.
+  //
+  // The session just created is thrown away rather than left dangling: without
+  // this, a suspended user would hold a working cookie for an hour despite the
+  // 401.
+  const { data: suspended } = await supabase
+    .from('accounts')
+    .select('suspended_at, suspended_reason')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (suspended?.suspended_at) {
+    await supabase.auth.signOut().catch(() => {});
+    return Response.json(
+      {
+        error: 'This account has been suspended.',
+        reason: suspended.suspended_reason || null,
+      },
+      { status: 403 }
+    );
+  }
+
   // DEVICE BINDING WAS REMOVED HERE on 2026-08-16, deliberately.
   //
   // Logging in used to require a browser fingerprint matching the one stored at
