@@ -219,7 +219,13 @@ const register = async (page, username) => {
   }
   if (res && !res.ok()) {
     const body = await res.json().catch(() => null);
-    throw new Error(`registration failed: HTTP ${res.status()} ${body?.error || ''}`);
+    // `reason` carries the underlying cause where the route has one — the
+    // user-facing message is deliberately vague, and during a key rotation
+    // "sign-in failed" was the only signal twice over.
+    throw new Error(
+      `registration failed: HTTP ${res.status()} ${body?.error || ''}` +
+        (body?.reason ? ` :: ${body.reason}` : '')
+    );
   }
 
   await page.waitForURL(/\/home/, { timeout: 25000 });

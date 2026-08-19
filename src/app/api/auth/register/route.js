@@ -161,7 +161,20 @@ export async function POST(request) {
   });
 
   if (signInError) {
-    return jsonError('Account created, but sign-in failed. Please log in.', 500);
+    // SAY WHY. This used to return the message alone, and the underlying reason
+    // was thrown away — which during a key rotation meant "sign-in failed" was
+    // the only signal for a misconfigured key, twice, and the cause had to be
+    // inferred from which half of the route got further. The account genuinely
+    // exists at this point, so the user's instruction is unchanged; `reason` is
+    // for whoever is looking at why.
+    console.error('[register] sign-in after create failed:', signInError.message);
+    return Response.json(
+      {
+        error: 'Account created, but sign-in failed. Please log in.',
+        reason: signInError.message || null,
+      },
+      { status: 500 }
+    );
   }
 
   const { data: account } = await supabase
