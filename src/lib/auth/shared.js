@@ -33,6 +33,46 @@ export function usernameToEmail(username) {
   return `${String(username).trim().toLowerCase()}@${SYNTHETIC_EMAIL_DOMAIN}`;
 }
 
+/**
+ * A fresh auth address that has nothing to do with the username.
+ *
+ * Used for every account created from 0026 onwards. The local part is a random
+ * uuid, so renaming a username is a change to one column and GoTrue never hears
+ * about it — which is the whole of FOLLOWUPS §7.
+ */
+export function newAuthEmail() {
+  return `${crypto.randomUUID()}@${SYNTHETIC_EMAIL_DOMAIN}`;
+}
+
+/**
+ * The address GoTrue knows this username by.
+ *
+ * SHAPED AROUND NOT LEAKING WHO HAS AN ACCOUNT. The login route's whole
+ * enumeration defence is that a wrong username and a wrong password produce the
+ * same message in a similar amount of time — so this must never short-circuit
+ * on "no such user". It always does exactly one lookup and always returns
+ * something to attempt a sign-in with; an unknown name falls through to the
+ * derived address, which then fails at GoTrue exactly as a wrong password does.
+ *
+ * The fallback is load-bearing for a second reason: every account created
+ * before 0026 is keyed by its derived address, and 0026 backfills those from
+ * `auth.users`. A row the backfill somehow missed still logs in.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} admin service-role client
+ * @param {string} username
+ */
+export async function resolveAuthEmail(admin, username) {
+  const name = String(username).trim();
+
+  const { data } = await admin
+    .from('accounts')
+    .select('auth_email')
+    .eq('username', name)
+    .maybeSingle();
+
+  return data?.auth_email || usernameToEmail(name);
+}
+
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
 
 /** Mirrors the CHECK constraint on accounts.username so errors are friendly. */

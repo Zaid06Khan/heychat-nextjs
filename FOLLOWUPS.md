@@ -22,7 +22,7 @@ the four DONE sections below each carry gaps that are still open.
 | 4 | CLOSED | Attachments were public by URL | No → `FOLLOWUPS-CLOSED.md` |
 | 5 | CLOSED | Disappearing-message cleanup | No → `FOLLOWUPS-CLOSED.md` |
 | 6 | CLOSED | Device binding gone; device list replaces it | 0018/0022 applied. Untested: revoking a *second* device |
-| 7 | LATENT | Username changes would orphan the auth user | Yes — cheap now, expensive later |
+| 7 | CLOSED | Username changes would orphan the auth user | No — 0026 applied 2026-08-19 |
 | 8 | CLOSED | Base44 shim retired | No — deleted 2026-08-18. Gap: dead `CallOverlay` route |
 | 9 | OPEN | Smaller items | Yes — 7 open, incl. two credentials to rotate. Four closed 2026-08-18 |
 | 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window |
@@ -359,19 +359,45 @@ been one session listing itself, so `is_current` is confirmed and revoking
 someone else's session is not. Sign in on a phone and revoke it from the laptop
 before trusting that half.
 
-## 7. Username changes would orphan the auth user — LATENT
+## 7. Username changes would orphan the auth user — CLOSED, 2026-08-19
 
-Supabase Auth keys users by email, and HeyChat has no emails, so each account
-gets a synthetic address derived from its username
-(`<username>@accounts.heychat.invalid`, see `src/lib/auth/shared.js`).
+Supabase Auth keys users by email and this app has none, so every account got a
+synthetic address built from its username. Login re-derived it to find the user,
+which meant the username was not a display name — **it was the primary key of
+the auth record**. Renaming one would have left the account unreachable by
+password and by recovery phrase alike, because neither is what the lookup uses.
 
-There is no username-change feature today. If one is added, it must update the
-GoTrue user's email in the same transaction, or login breaks — the login route
-looks the user up by the *derived* address.
+`0026_auth_email.sql` stores the address on `accounts.auth_email` and login looks
+it up. New accounts get `<uuid>@<domain>`, so a name and an identity now have
+nothing to do with each other; a rename is one column.
 
-Cleaner fix: store a stable random local-part at signup
-(`<uuid>@accounts.heychat.invalid`) so the auth identity never depends on the
-username. Worth doing before the first username-change ticket, not after.
+**The backfill copies `auth.users`, it does not re-derive.** Rebuilding the
+address in SQL would have baked in that file's idea of the domain — and the
+domain is configurable, lowercasing has changed shape before, and one mismatched
+row is an account nobody can ever sign into again. Verified after applying:
+7 of 7 accounts resolve to exactly the address GoTrue holds.
+
+**No auth user was rewritten.** Existing accounts keep their username-derived
+address forever, which is fine because it is now opaque data rather than a
+formula anybody re-computes. That avoided a migration that could have locked
+real people out for a cosmetic gain.
+
+**The resolver must not short-circuit on an unknown name.** The login route's
+enumeration defence is that a wrong username and a wrong password produce the
+same message in a similar amount of time, so `resolveAuthEmail` always does one
+lookup and always returns something to attempt — an unknown name falls through
+to the derived address and fails at GoTrue exactly as a wrong password does.
+
+**A consequence worth knowing:** `HEYCHAT_SYNTHETIC_EMAIL_DOMAIN` now only
+affects accounts created *after* this migration. Existing identities are stored,
+so changing it no longer locks anyone out — it just means new and old accounts
+carry different domains, which nothing cares about.
+
+The e2e suite renames an account, logs in under the new name, checks the old
+name stops working, and checks GoTrue still holds the address it was created
+with. It also caught its own helper: `signedInClient` composed the address from
+the username and broke on the first run — the same failure a rename would have
+caused, reproduced by the change that fixes it.
 
 ## 8. Retire the shim — CLOSED, 2026-08-18
 

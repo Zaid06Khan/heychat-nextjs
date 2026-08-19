@@ -1,6 +1,6 @@
 import { getSupabaseRouteClient } from '@/lib/supabase/server';
 import { getSupabaseAdminClient } from '@/lib/supabase/admin';
-import { usernameToEmail, validatePassword, jsonError } from '@/lib/auth/shared';
+import { resolveAuthEmail, validatePassword, jsonError } from '@/lib/auth/shared';
 
 /**
  * POST /api/auth/change-password
@@ -29,21 +29,25 @@ export async function POST(request) {
 
   const { data: account } = await supabase
     .from('accounts')
-    .select('username')
+    .select('username, auth_email')
     .eq('id', userData.user.id)
     .single();
 
   if (!account) return jsonError('Account not found.', 404);
 
-  // Re-verify the current password.
+  const admin = getSupabaseAdminClient();
+
+  // Re-verify the current password, against the stored auth address rather than
+  // one rebuilt from the username — the two stop matching the moment a username
+  // changes, and this is a re-authentication, so a mismatch would read as
+  // "wrong password" to somebody who typed the right one.
   const { error: verifyError } = await supabase.auth.signInWithPassword({
-    email: usernameToEmail(account.username),
+    email: account.auth_email || (await resolveAuthEmail(admin, account.username)),
     password: current_password ?? '',
   });
 
   if (verifyError) return jsonError('Current password is incorrect.', 403);
 
-  const admin = getSupabaseAdminClient();
   const { error: updateError } = await admin.auth.admin.updateUserById(
     userData.user.id,
     { password: new_password }

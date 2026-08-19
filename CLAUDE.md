@@ -30,7 +30,7 @@ The three that shape most decisions:
 npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
-npm run test:e2e -- http://localhost:3000       # 117 assertions, backend boundaries
+npm run test:e2e -- http://localhost:3000       # 120 assertions, backend boundaries
 npm run test:browser -- http://localhost:3000   # 123 assertions, real UI, 3 contexts
 npm run db:plan        # migrations in order — needs no database
 npm run db:status      # what is applied, what is pending
@@ -81,10 +81,10 @@ the shield turn to mush, and the favicon reads as "a gold shield" and no more.
 Three identifiers keep the OLD spelling on purpose, and each one breaks something
 silent if changed:
 
-- **`HEYCHAT_SYNTHETIC_EMAIL_DOMAIN` / `accounts.heychat.invalid`** — every
-  account's GoTrue user is keyed by `<username>@<domain>` and login re-derives
-  it. Changing it makes every existing account unreachable by password *and* by
-  recovery phrase.
+- **`HEYCHAT_SYNTHETIC_EMAIL_DOMAIN`** — since 0026 the auth address is STORED
+  on `accounts.auth_email` and looked up, so changing the domain no longer locks
+  existing accounts out; it only changes what new ones get. Renaming a username
+  is now safe for the same reason. Before 0026 both were account-destroying.
 - **`calamuse_sound_enabled`** (localStorage) — renaming it silently resets the
   preference of everyone who had turned sound off, which is the only group that
   would notice.
@@ -106,7 +106,7 @@ src/lib/conversations.js   │  (§8 — the shim was deleted 2026-08-18)
 src/lib/messages/          │
 src/lib/reports.js        ─┘
 src/lib/supabase/         browser / route-handler / service-role clients
-supabase/migrations/      the database, 0001–0025
+supabase/migrations/      the database, 0001–0026
 ```
 
 ### Three Supabase clients, on purpose

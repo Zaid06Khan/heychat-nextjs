@@ -315,9 +315,16 @@ back to public.
 ### Auth
 
 Calamus3 collects no email and no phone. Supabase Auth requires an email, so each
-account gets a synthetic non-routable one derived from the username
-(`<username>@accounts.heychat.invalid`). Nothing is ever sent to it. The username
-remains the real identifier.
+account gets a synthetic non-routable one. Nothing is ever sent to it, and the
+username remains the real identifier.
+
+**Since 0026 that address is random and stored, not derived from the username.**
+It used to be `<username>@accounts.heychat.invalid`, rebuilt at every login —
+which quietly made the username the primary key of the auth record, so a rename
+would have locked the account out for good. New accounts get
+`<uuid>@accounts.heychat.invalid` in `accounts.auth_email`, login looks it up,
+and a rename is one column. Accounts created before 0026 keep their old address;
+it is opaque data now rather than a formula anyone recomputes.
 
 Passwords are verified by Supabase Auth with bcrypt, server-side. They are never
 hashed in the browser.

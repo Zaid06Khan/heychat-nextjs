@@ -41,10 +41,27 @@ const post = async (path, body) => {
   return { status: res.status, json: await res.json().catch(() => null) };
 };
 
+/**
+ * Sign in the way the app does: by LOOKING UP the auth address, not rebuilding
+ * it from the username.
+ *
+ * This helper used to compose `<username>@<domain>` itself, and 0026 broke it
+ * on the first run — which is the point. Since 0026 a new account's GoTrue
+ * identity is a random uuid that has nothing to do with its name, so anything
+ * still deriving the address finds no user. That is exactly the failure a
+ * username change would have caused before, reproduced here by the change that
+ * fixes it.
+ */
 const signedInClient = async (username) => {
+  const { data: row } = await admin
+    .from('accounts')
+    .select('auth_email')
+    .eq('username', username)
+    .maybeSingle();
+
   const c = createClient(URL, ANON);
   const { error } = await c.auth.signInWithPassword({
-    email: `${username}@${DOMAIN}`,
+    email: row?.auth_email || `${username}@${DOMAIN}`,
     password: PW,
   });
   if (error) throw new Error(`sign-in failed for ${username}: ${error.message}`);
@@ -199,6 +216,43 @@ const deviceRoute = await post('/api/auth/device', { username: alice, device_fin
 check(deviceRoute.json === null && deviceRoute.json?.ok !== true,
   '/api/auth/device no longer answers as an API — the fingerprint reset path is gone',
   `status=${deviceRoute.status} json=${JSON.stringify(deviceRoute.json)}`);
+
+// 0026: A USERNAME IS NO LONGER THE AUTH RECORD'S KEY.
+//
+// Until this migration, GoTrue knew each account by `<username>@<domain>` and
+// login rebuilt that address to find the user — so renaming a username, had the
+// feature ever been built, would have made the account unreachable by password
+// AND by recovery phrase, because neither is what the lookup uses. It was
+// latent only because nothing offered a rename.
+//
+// There is still no rename feature, so this does what one would do: move the
+// column. If login survives that, the identity has genuinely stopped depending
+// on the name.
+const renamed = `${carol}_renamed`;
+await admin.from('accounts').update({ username: renamed }).eq('username', carol);
+
+const afterRename = await post('/api/auth/login', { username: renamed, password: PW });
+check(afterRename.status === 200,
+  'an account still logs in after its username changes',
+  `status=${afterRename.status}`);
+
+// And the old name stops working, which is the other half of it being a real
+// rename rather than an alias.
+const oldName = await post('/api/auth/login', { username: carol, password: PW });
+check(oldName.status === 401,
+  'and the old username no longer signs in',
+  `status=${oldName.status}`);
+
+// The auth record was not touched. That is the point: a rename is one column,
+// not a rewrite of the identity GoTrue holds.
+const { data: renamedRow } = await admin
+  .from('accounts').select('auth_email').eq('username', renamed).maybeSingle();
+const { data: authUsers } = await admin.auth.admin.listUsers({ perPage: 200 });
+check(authUsers.users.some((u) => u.email === renamedRow?.auth_email),
+  'and GoTrue still holds the address it was created with',
+  renamedRow?.auth_email);
+
+await admin.from('accounts').update({ username: carol }).eq('username', renamed);
 
 console.log('\n--- 4. SEND A MESSAGE ---');
 const A = await signedInClient(alice);

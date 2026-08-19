@@ -1,5 +1,6 @@
 import { getSupabaseRouteClient } from '@/lib/supabase/server';
-import { usernameToEmail, jsonError } from '@/lib/auth/shared';
+import { getSupabaseAdminClient } from '@/lib/supabase/admin';
+import { resolveAuthEmail, jsonError } from '@/lib/auth/shared';
 import { check, clientKey, tooManyRequests } from '@/lib/auth/rateLimit';
 
 /**
@@ -40,8 +41,15 @@ export async function POST(request) {
   // user-agent rather than the server's — see getSupabaseRouteClient.
   const supabase = await getSupabaseRouteClient(request);
 
+  // LOOKED UP, NOT DERIVED. The username used to BE the auth record's key, so
+  // renaming one would have locked the account out permanently — see §7 and
+  // 0026. This resolves to whatever GoTrue actually holds, and deliberately
+  // returns a derived address for an unknown name rather than stopping early,
+  // so the enumeration defence above still holds: same message, same work.
+  const authEmail = await resolveAuthEmail(getSupabaseAdminClient(), username);
+
   const { data: signIn, error: signInError } = await supabase.auth.signInWithPassword({
-    email: usernameToEmail(String(username).trim()),
+    email: authEmail,
     password,
   });
 

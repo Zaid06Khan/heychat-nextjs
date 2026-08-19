@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { getSupabaseAdminClient } from '@/lib/supabase/admin';
 import { getSupabaseRouteClient } from '@/lib/supabase/server';
 import {
-  usernameToEmail,
+  newAuthEmail,
   validateUsername,
   validatePassword,
   jsonError,
@@ -96,8 +96,15 @@ export async function POST(request) {
 
   if (taken) return jsonError('Username is already taken.', 409);
 
+  // A RANDOM ADDRESS, NOT ONE BUILT FROM THE NAME. This is what lets a username
+  // change later be a single-column update instead of a rewrite of the auth
+  // record — and it keeps the chosen name out of the auth table entirely.
+  // Uniqueness of usernames is still guaranteed by the unique index on
+  // accounts.username, which is what the failure path below cleans up after.
+  const authEmail = newAuthEmail();
+
   const { data: created, error: createError } = await admin.auth.admin.createUser({
-    email: usernameToEmail(cleanUsername),
+    email: authEmail,
     password,
     email_confirm: true, // synthetic address; there is nothing to confirm
     user_metadata: { username: cleanUsername },
@@ -112,6 +119,9 @@ export async function POST(request) {
   const { error: accountError } = await admin.from('accounts').insert({
     id: userId,
     username: cleanUsername,
+    // Written in the same insert as the username, so an account can never exist
+    // without the address needed to sign into it.
+    auth_email: authEmail,
     display_name: display_name || cleanUsername,
     avatar: avatar || '',
     bio: '',
@@ -146,7 +156,7 @@ export async function POST(request) {
   // caller's headers have to reach GoTrue or the device list says "node".
   const supabase = await getSupabaseRouteClient(request);
   const { error: signInError } = await supabase.auth.signInWithPassword({
-    email: usernameToEmail(cleanUsername),
+    email: authEmail,
     password,
   });
 
