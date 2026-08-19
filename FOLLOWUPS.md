@@ -24,7 +24,7 @@ the four DONE sections below each carry gaps that are still open.
 | 6 | CLOSED | Device binding gone; device list replaces it | 0018/0022 applied. Untested: revoking a *second* device |
 | 7 | CLOSED | Username changes would orphan the auth user | No — 0026 applied 2026-08-19 |
 | 8 | CLOSED | Base44 shim retired | No — deleted 2026-08-18. Gap: dead `CallOverlay` route |
-| 9 | OPEN | Smaller items | Yes — 7 open, incl. two credentials to rotate. Four closed 2026-08-18 |
+| 9 | OPEN | Smaller items | Yes — 5 open. Contact search fixed 2026-08-19; **both credentials rotated 2026-08-19** |
 | 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window |
 | 11 | DONE | Replies, reactions, edit, delete, typing | 0016/0017/0020 applied. Gaps: notification not cleared on delete, read race, no optimistic send |
 | 12 | DONE | Unread counts | Gap: mutes still count (the four-badge double-mount is fixed) |
@@ -680,40 +680,24 @@ answer "is this account suspended" to anyone who typed a username.
   action menu stays inside the viewport for both sent and received messages.
   Nothing needed fixing. The reason this sat open so long was tooling: the
   Chrome extension could not resize below desktop.
-- **Two credentials need rotating.** The Supabase `service_role` key and the
-  database password have both been pasted into chat transcripts. The key
-  bypasses all RLS.
+- ~~**Two credentials need rotating.**~~ **Done 2026-08-19.** The database
+  password was reset, and the project moved off legacy `anon`/`service_role`
+  JWTs onto publishable/secret keys — which avoided rotating the JWT secret and
+  so logged nobody out. The exposed secret key was revoked.
 
-**Historical, for context:** deleted files and the request-duplication
-measurements have moved to `FOLLOWUPS-CLOSED.md`.
+  **It went wrong once on the way, and the lesson is in `next.config.mjs`.** The
+  publishable and secret keys were swapped in Vercel, so the secret was inlined
+  into the browser bundle and shipped. Nothing here caught it; Supabase did,
+  refusing the request with "Forbidden use of secret API key in browser". The
+  build now refuses outright if any `NEXT_PUBLIC_*` variable holds an
+  `sb_secret_` value.
 
-## 10. Push notifications — DONE; the delivery gap closed 2026-08-14
-
-Added 2026-08-09: `0008_push_subscriptions.sql`, `public/sw.js`,
-`src/lib/push/*`, `/api/push/{subscribe,unsubscribe,notify}`, and a toggle in
-Settings. The README section "Notifications" describes the design. Optional at
-runtime — with no VAPID keys set, the app behaves exactly as it did before.
-
-What is deliberately still imperfect:
-
-- ~~Delivery depends on the sender's tab surviving one more request.~~
-  **Closed 2026-08-14.** Sending goes through `POST /api/messages` (see #8),
-  which inserts the message and then notifies from Next's `after()` — after the
-  response is on the wire, still inside the same server invocation. So the
-  composer never waits on a round trip to FCM, and the notification is no longer
-  something the sender's tab has to stay alive to ask for. `/api/push/notify` is
-  **deleted**, along with the machinery it needed to survive being callable with
-  any message id at all: reading the row through the caller's session, checking
-  they were its sender, and a one-minute window so a captured id could not be
-  replayed. None of that was protecting anything real — it was protecting
-  against the shape of the design, and the shape changed.
-
-  What is left is the narrow, honest version of the same failure: if the server
-  process dies between the insert and the `after()` callback, the message is
-  delivered silently. That is one process, in one place, for a few hundred
-  milliseconds, instead of every user's browser tab for the length of a request.
-  A database trigger with `pg_net` is still the only thing that would close it
-  completely, and still costs a service-role key stored in the database.
+  **Two swallowed errors made it take three attempts.** `/api/auth/register`
+  discarded `signInError.message` behind "Account created, but sign-in failed",
+  and `resolveAuthEmail` fails soft by design — so a dead secret key still
+  produced an ordinary-looking login error. Server-side probes were reassuring
+  and wrong; registration was the only honest test. Both paths now surface the
+  underlying reason.
 - **The rate limiter is per-process** (see below), and it now bounds
   `/api/messages` at 60 sends per account per minute — the first send limit this
   app has ever had; before this, message inserts went straight to Postgres with
