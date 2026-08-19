@@ -13,6 +13,13 @@ end-to-end encrypted by WebRTC itself. Push notifications
 (§2). All migrations through `0021` are applied as of 2026-08-16;
 `npm run db:status` is the authority.
 
+
+> **Before putting this in front of anyone: read `KNOWN-ISSUES.md`.**
+> The short version is that **calls fail for roughly 15–20% of network pairs**
+> because there is no TURN relay yet, and messages are encrypted in transit but
+> not end to end. Both are accepted trade-offs, not surprises — the file says
+> what each one looks like when a user hits it.
+
 ## Setup
 
 ```bash

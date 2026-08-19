@@ -11,6 +11,8 @@ Screens move to real App Router routes incrementally.
 ## Read this first
 
 `FOLLOWUPS.md` is the source of truth for what is broken and what is unfinished.
+`KNOWN-ISSUES.md` is the short, plain-language version for people *using* the app —
+keep the two in step when a limitation is accepted rather than fixed.
 It has a status index at the top — **read the one section you need by heading,
 not the whole file.**
 
