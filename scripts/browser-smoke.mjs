@@ -1122,6 +1122,55 @@ try {
 
   await ctxC.close();
 
+  console.log('\n--- 10d. THE QR CODE IS DRAWN ON THIS DEVICE ---');
+  // It used to be an <img> pointing at api.qrserver.com with the username in
+  // the query string, which told a third party which username was on this
+  // device every time somebody opened their own profile. For an app whose
+  // promise is "just a username", that WAS the identity leaving.
+  //
+  // Two things worth asserting: that it renders at all, and that nothing goes
+  // to qrserver while it does.
+  const qrRequests = [];
+  const watchQr = (r) => { if (r.url().includes('qrserver')) qrRequests.push(r.url()); };
+  A.on('request', watchQr);
+
+  await A.goto(`${APP}/profile`, { waitUntil: 'domcontentloaded' });
+  await seen(A, 'text=Profile', 15000);
+  // The QR lives behind the header button; open it.
+  await A.evaluate(() => {
+    const btns = [...document.querySelectorAll('button')];
+    // The QR button is the one whose icon is the qr-code glyph.
+    const target = btns.find((b) => b.querySelector('svg.lucide-qr-code'))
+      || btns.find((b) => (b.getAttribute('aria-label') || '').toLowerCase().includes('qr'));
+    if (target) target.click();
+  });
+
+  const qrShown = await seen(A, 'canvas[role="img"]', 10000);
+  check(qrShown, 'the QR dialog draws a canvas rather than loading a remote image');
+
+  if (qrShown) {
+    // A canvas with real content, not a blank element the size of a QR code.
+    const painted = await A.evaluate(() => {
+      const c = document.querySelector('canvas[role="img"]');
+      if (!c || !c.width) return null;
+      const ctx = c.getContext('2d');
+      const { data } = ctx.getImageData(0, 0, c.width, c.height);
+      let dark = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i] < 128) dark += 1;
+      return { pixels: data.length / 4, dark };
+    });
+    check(
+      painted && painted.dark > painted.pixels * 0.05,
+      'and the canvas has actual QR content painted on it',
+      painted ? `${painted.dark} dark of ${painted.pixels} pixels` : 'no canvas'
+    );
+  }
+
+  check(qrRequests.length === 0,
+    'and nothing was requested from qrserver.com',
+    qrRequests.join(', '));
+  A.off('request', watchQr);
+
   console.log('\n--- 8. CONSOLE ---');
   // Push failures are expected here — headless Chromium has no push service —
   // and so are favicon/manifest 404s. Everything else is ours and is a bug.

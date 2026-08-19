@@ -4,6 +4,7 @@ import { Core } from '@/lib/media/upload';
 import { getCurrentAccount } from '@/lib/heychatAuth';
 import { Camera, Save, QrCode, Share2 } from 'lucide-react';
 import Avatar from '@/components/heychat/Avatar';
+import QrCanvas from '@/components/heychat/QrCanvas';
 
 export default function Profile() {
   const [account, setAccount] = useState(null);
@@ -162,7 +163,7 @@ export default function Profile() {
             <h3 className="text-lg font-heading font-bold text-foreground mb-1">Your QR Code</h3>
             <p className="text-sm text-muted-foreground mb-4">Share this with people to let them add you as a contact</p>
             <div className="bg-white p-4 rounded-2xl mx-auto w-fit">
-              <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(account.username)}`} alt="QR Code" className="w-48 h-48" />
+              <QrCanvas value={account.username} size={192} />
             </div>
             <p className="text-sm text-foreground font-medium mt-4">@{account.username}</p>
             <button onClick={() => setShowQR(false)} className="w-full mt-4 py-3 rounded-xl bg-secondary text-foreground font-medium">Close</button>
