@@ -1,0 +1,73 @@
+name: Android APK
+
+# Builds an installable debug APK and attaches it to the run as an artifact.
+#
+# WHY CI AND NOT A LOCAL BUILD. Building Android needs the Android SDK, and
+# this project is developed on a Windows machine with no SDK, no Android Studio
+# and no Gradle. A Linux runner has all three preinstalled, so the APK gets
+# built without installing ~2GB of tooling to find out whether the app runs at
+# all. It is also the same shape as the macOS workflow iOS will need.
+#
+# WHAT YOU GET. A *debug* APK, signed with Android's throwaway debug key. It
+# installs on a phone with "install unknown apps" enabled. It is NOT the artifact
+# you upload to Play — that needs a release build signed with a keystore you
+# generate and keep, which is a separate job wired up when the Play account
+# exists.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    # Only when something that affects the app actually changes. Documentation
+    # commits should not spend build minutes.
+    paths:
+      - 'android/**'
+      - 'www/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - '.github/workflows/android.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Capacitor's Gradle wrapper wants a JDK; 21 matches what the project is
+      # developed against.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `cap sync` copies webDir into the native project and refreshes plugins.
+      # The WebView loads the deployed site (server.url in capacitor.config.json),
+      # so what lands here is only the fallback page — but syncing keeps the
+      # native project honest about the config it was built with.
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Name the artifact after the commit
+        id: meta
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calamus3-debug-${{ steps.meta.outputs.sha }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

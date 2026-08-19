@@ -1,0 +1,13 @@
+{
+  "appId": "app.calamus3.mobile",
+  "appName": "Calamus3",
+  "webDir": "www",
+  "server": {
+    "url": "https://calamus3.vercel.app",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

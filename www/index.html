@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Calamus3</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #FFFDF7;
+        color: #12100E;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 2rem;
+        box-sizing: border-box;
+      }
+      p { max-width: 22rem; line-height: 1.5; }
+      strong { display: block; font-size: 1.1rem; margin-bottom: 0.5rem; }
+      code { background: #F0EDE4; padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <!--
+      THIS SCREEN MEANS SOMETHING WENT WRONG, and that is the whole reason it
+      exists. `server.url` in capacitor.config.json points the WebView at the
+      deployed app, so in normal operation this file is never shown. Capacitor
+      still requires a `webDir` to exist, and the obvious thing to put in it is
+      nothing — which produces a white screen when the remote URL cannot be
+      reached, and a white screen tells you nothing.
+    -->
+    <p>
+      <strong>Calamus3 could not load.</strong>
+      This app opens the hosted version at <code>calamus3.vercel.app</code>.
+      Seeing this screen means the device could not reach it — check the
+      connection and reopen the app.
+    </p>
+  </body>
+</html>
