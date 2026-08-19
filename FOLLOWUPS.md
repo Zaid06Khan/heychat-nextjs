@@ -23,7 +23,7 @@ the four DONE sections below each carry gaps that are still open.
 | 5 | CLOSED | Disappearing-message cleanup | No → `FOLLOWUPS-CLOSED.md` |
 | 6 | CLOSED | Device binding gone; device list replaces it | 0018/0022 applied. Untested: revoking a *second* device |
 | 7 | LATENT | Username changes would orphan the auth user | Yes — cheap now, expensive later |
-| 8 | OPEN | Retire the shim, one screen at a time | Yes — `ChatView` reads still go through it |
+| 8 | CLOSED | Base44 shim retired | No — deleted 2026-08-18. Gaps: dead `CallOverlay` route, one-page contact search |
 | 9 | OPEN | Smaller items | Yes — 7 open, incl. two credentials to rotate. Four closed 2026-08-18 |
 | 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window |
 | 11 | DONE | Replies, reactions, edit, delete, typing | 0016/0017/0020 applied. Gaps: notification not cleared on delete, read race, no optimistic send |
@@ -340,70 +340,71 @@ Cleaner fix: store a stable random local-part at signup
 (`<uuid>@accounts.heychat.invalid`) so the auth identity never depends on the
 username. Worth doing before the first username-change ticket, not after.
 
-## 8. Retire the shim, one screen at a time — OPEN
+## 8. Retire the shim — CLOSED, 2026-08-18
 
-`src/api/base44Client.js` → `src/lib/shim/entities.js` exists so ~30 components
-didn't have to change in a single pass. It is scaffolding.
+`src/api/base44Client.js` and `src/lib/shim/` are **deleted**. Every screen talks
+to Supabase directly or through a named helper in `src/lib/`. Nothing imports
+`base44` any more, and there is no `TABLES` map to add an entity to.
 
-**The worst of it is fixed** (2026-08-09), without retiring the shim itself.
-`ConversationList` used to do 1 + 2N queries — the conversations, then the other
-participant and the last message of each, one at a time — and open *two*
-realtime channels that each refetched everything on any change anywhere. It now
-does four queries regardless of conversation count, on one debounced channel.
-The last-message part needed `0011_conversation_list.sql`: "newest row per
-group" is `distinct on` in Postgres and PostgREST cannot express it.
+**What replaced it.** Six modules, each named after what it is for rather than
+after a table:
 
-That work also fixed a bug nobody had filed: the list was ordered by
-`conversations.updated_date`, and **nothing bumps a conversation row when a
-message arrives** — so a new message never moved its conversation to the top,
-which is the one thing that list is for. It now sorts by last message.
+| Module | Replaces |
+|---|---|
+| `lib/accounts.js` | `Account.get / filter / update` |
+| `lib/contacts.js` | `ContactRequest.*` |
+| `lib/conversations.js` (extended) | `Conversation.get / filter / create / update` |
+| `lib/messages/read.js` | `Message.filter` |
+| `lib/reports.js` | `Report.create` |
+| `lib/calls/records.js` | `Call.create` |
+| `lib/media/upload.js` | `integrations.Core.UploadFile` (moved out of `lib/shim/`) |
 
-**Sending has now left the shim** (2026-08-14) — the first write to do so, and
-it went first because of what it was costing rather than to start at the top of
-a list. `POST /api/messages` inserts the row and sends the notification in one
-request; `src/lib/messages/send.js` is all the client keeps. See #10 for the bug
-that closes, and the route's own comment for why the insert still goes through
-the *caller's* session rather than the service role: `messages_insert_member`
-was already the boundary and already tested, and a second membership check
-written in JavaScript would only be a thing that could drift from it.
+**The N+1 reads went with it.** The shim had no way to say "these ids", so every
+list looped `Account.get` and paid a request per person: Contacts made 1 + 3N,
+the group create dialog 2 + N, ChatView one per group member. `getAccountsById`
+returns a Map from one `in` query, and those screens are now a fixed number of
+reads regardless of how many people are in them.
 
-Three things stopped being the client's decision on the way through — `sender_id`,
-`read_by` and `created_date` were already belt-and-braces, but **`expiry_at` was
-a real hole**: the browser computed the disappearing-message expiry, so anything
-posting to Supabase directly could send a permanent message into a disappearing
-conversation. It is derived from `conversations.disappearing_timer` server-side
-now, and the e2e suite sends a message that explicitly asks for no expiry and
-asserts it gets one anyway.
+**ChatView's two channels became one, debounced.** `Message.subscribe()` opened a
+channel carrying EVERY message row in the database and discarded the ones for
+other conversations in the browser — a firehose with a client-side filter. It is
+now `conversation_id=eq.<id>` server-side, on the same channel as reactions, with
+a 120ms debounce so a burst of reaction rows causes one refetch rather than one
+per row. It also does `realtime.setAuth` before subscribing, which the shim's
+`subscribe()` never did.
 
-One thing the move forced into the open: **a failed send used to vanish.**
-`MessageInput` clears the composer the moment it hands the text over, and
-`handleSend` had no `catch`, so anything that went wrong took the message with
-it — no bubble, no error, nothing to retry. That was always true; adding a rate
-limit made it likely enough to matter. There is now an inline error line above
-the composer with a Retry that re-sends the same payload. It is the minimum:
-there is no queue, so the text is held in one piece of component state and a
-navigation away loses it.
+**Two pieces of dead Base44 code surfaced on the way.** `PageNotFound` called
+`base44.auth.me()`, which the shim did not define — so it threw on every render,
+the catch swallowed it, and the "the AI hasn't implemented this page yet" note it
+guarded was unreachable. Both are gone. `ResetPassword.jsx`, named in this
+section's old text as the last `base44.auth` caller, no longer exists.
 
-`ChatView` still *reads* through the shim, and that is the larger half.
+### Still open
 
-Costs while the shim stays:
-- Everything else is a client-side query. No server rendering, no request
-  waterfall control.
-- `.subscribe()` still opens one realtime channel per call site everywhere else.
-- The Base44 filter dialect (`{ $lt: ... }`) is translated at runtime instead of
-  being a typed query.
-
-New surfaces added since (mutes, reactions, typing, push, sending) deliberately
-go straight to Supabase or to a route handler rather than through `TABLES`, so
-the shim shrinks by not growing.
-
-Migration order that keeps risk low: `Landing` → `Login`/`Register` → `Contacts`
-→ `Settings`/`Profile` → `ConversationList`/`ChatView` last. Delete each entity
-from `TABLES` once nothing imports it.
+- **`CallOverlay` is dead code that still has a route.** It predates real calls:
+  it renders your own camera with no peer connection at all. It was migrated off
+  the shim rather than deleted because deleting `/call/:conversationId` is a
+  product decision, not plumbing. Real calls are `lib/calls/controller.js`.
+- **Contact search still only sees one page of accounts.** `ContactSearch` fetches
+  20 rows and filters them in the browser, so somebody outside those 20 cannot be
+  found by typing their name. This is not a translation artefact — it is exactly
+  what `Account.filter({}, null, 20)` did, preserved deliberately because this
+  pass was plumbing. The fix is one `ilike` in `lib/accounts.js`; see §9.
+- **Screens are still client-side React Router**, mounted under the catch-all.
+  Retiring the shim was a prerequisite for moving them to real App Router routes,
+  not the move itself.
 
 ## 9. Smaller items
 
 **Still open:**
+
+- **Contact search only ever sees 20 accounts.** `ContactSearch` fetches a page
+  and filters it in the browser, so someone outside that page cannot be found by
+  typing their name — search silently returns nothing rather than saying it
+  looked at a fraction of the table. Inherited from the shim call it replaced
+  (`Account.filter({}, null, 20)`) and preserved through §8 on purpose, because
+  that pass was plumbing. The fix is a server-side `ilike` in
+  `lib/accounts.js`, and it changes results, which is why it is its own decision.
 
 - **A sent contact request had no home — fixed 2026-08-18.** The "Sent" tick was
   a `sentTo` object in `ContactSearch` state, so it lived exactly as long as the

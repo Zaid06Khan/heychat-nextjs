@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { updateAccount } from '@/lib/accounts';
+import { createReport } from '@/lib/reports';
 import { getSession, getCurrentAccount, invalidateCurrentAccount } from '@/lib/heychatAuth';
 import { Flag, X } from 'lucide-react';
 
@@ -26,13 +27,12 @@ export default function ReportDialog({ open, onClose, reportedId, reportedName, 
     setSubmitting(true);
     setError('');
     try {
-      await base44.entities.Report.create({
-        reporter_id: session.id,
-        reported_id: reportedId,
-        reported_username: reportedName,
+      await createReport({
+        reporterId: session.id,
+        reportedId,
+        reportedUsername: reportedName,
         reason,
         description: description.trim(),
-        status: 'pending',
       });
       if (blockUser) {
         // The existing block list has to come from the database. This used to
@@ -44,7 +44,7 @@ export default function ReportDialog({ open, onClose, reportedId, reportedName, 
         const account = await getCurrentAccount({ force: true });
         const blocked = account?.blocked_account_ids || [];
         const updated = [...new Set([...blocked, reportedId])];
-        await base44.entities.Account.update(session.id, { blocked_account_ids: updated });
+        await updateAccount(session.id, { blocked_account_ids: updated });
         // Drop the memoized account so the next read sees the new list.
         invalidateCurrentAccount();
         if (onBlocked) onBlocked();

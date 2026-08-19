@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { isSoundEnabled, setSoundEnabled, playMessageSound } from '@/lib/sound';
 import { Bell, BellOff, AlertTriangle, EyeOff, Volume2 } from 'lucide-react';
 import { enablePush, disablePush, getPushState } from '@/lib/push/client';
-import { base44 } from '@/api/base44Client';
+import { updateAccount } from '@/lib/accounts';
 
 /**
  * The notification opt-in.
@@ -40,7 +40,7 @@ export default function NotificationSettings({ account, onAccountChange }) {
     // enforces this on every send.
     onAccountChange?.({ ...account, hide_notification_preview: hide });
     try {
-      await base44.entities.Account.update(account.id, { hide_notification_preview: hide });
+      await updateAccount(account.id, { hide_notification_preview: hide });
     } catch {
       onAccountChange?.({ ...account, hide_notification_preview: !hide });
       setError('Could not save that setting.');

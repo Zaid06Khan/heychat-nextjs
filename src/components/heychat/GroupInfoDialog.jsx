@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X, Crown, UserMinus, UserPlus, LogOut, Pencil, Check, AlertTriangle } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { listAccountsPage } from '@/lib/accounts';
 import { getSession } from '@/lib/heychatAuth';
 import Avatar from './Avatar';
 import { inviteMember, removeMember, leaveGroup, updateGroupDetails } from '@/lib/groups';
@@ -45,7 +45,7 @@ export default function GroupInfoDialog({ open, onClose, conversation, members, 
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const found = await base44.entities.Account.filter({}, null, 200);
+        const found = await listAccountsPage(200);
         const q = search.trim().toLowerCase();
         if (!cancelled) {
           setResults(

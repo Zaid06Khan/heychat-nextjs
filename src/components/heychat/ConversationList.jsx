@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { getMyConversations } from '@/lib/conversations';
 import { getSession, logout, getCurrentAccount } from '@/lib/heychatAuth';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getMutes } from '@/lib/notifications/mutes';
@@ -143,9 +143,7 @@ export default function ConversationList() {
     try {
       const supabase = getSupabaseBrowserClient();
 
-      const convs = await base44.entities.Conversation.filter(
-        { participant_ids: session.id }, '-updated_date', 50
-      );
+      const convs = await getMyConversations(session.id, 50);
 
       if (convs.length === 0) {
         setConversations([]);

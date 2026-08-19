@@ -13,17 +13,19 @@ function extensionFor(file) {
 }
 
 /**
- * Drop-in replacement for Base44's `integrations.Core.UploadFile`.
- * Same call shape (`{ file }`), same return shape (`{ file_url }`).
+ * Put a file in the media bucket, and get back the key that names it.
  *
  * Objects are written to `<user-id>/<uuid>.<ext>`. The storage policy in
  * 0003_storage.sql keys off that first path segment, so a signed-in user can
  * only ever write into their own folder.
  *
- * `file_url` is now the storage KEY, not a URL — the bucket went private in
- * 0006 and public URLs stopped resolving. The name is kept because ~30 shim
- * callers destructure it; what changed is that the value must be exchanged for
- * a signed URL before anything can render it. See lib/media/useSignedMedia.
+ * IT RETURNS A KEY, NOT A URL. The bucket went private in 0006 and public URLs
+ * stopped resolving, so the value has to be exchanged for a short-lived signed
+ * URL before anything can render it — see `lib/media/useSignedMedia`.
+ *
+ * This was `integrations.Core.UploadFile` on the Base44 shim, and the
+ * `{ file_url }` return shape is kept because that is what every caller
+ * destructures; only the import path changed.
  */
 export const Core = {
   async UploadFile({ file }) {

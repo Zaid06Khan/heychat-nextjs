@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { getAccount, updateAccount } from '@/lib/accounts';
+import { sendContactRequest } from '@/lib/contacts';
 import { getSession, getSuggestions } from '@/lib/heychatAuth';
 import { RefreshCw, UserPlus, MapPin, Clock } from 'lucide-react';
 import Avatar from './Avatar';
@@ -23,7 +24,7 @@ export default function DiscoverSuggestions() {
 
   const loadSuggestions = async () => {
     try {
-      const account = await base44.entities.Account.get(session.id);
+      const account = await getAccount(session.id);
       if (!account.country) {
         setNoCountry(true);
         setLoading(false);
@@ -59,14 +60,14 @@ export default function DiscoverSuggestions() {
   const refreshSuggestions = async (account) => {
     setRefreshing(true);
     try {
-      const acc = account || await base44.entities.Account.get(session.id);
+      const acc = account || (await getAccount(session.id));
       if (!acc.country) { setNoCountry(true); return; }
       setNoCountry(false);
       const newSuggestions = await getSuggestions();
       setSuggestions(newSuggestions);
       setCooldownRemaining(COOLDOWN_MS);
       localStorage.setItem(`heychat_suggestions_${session.id}`, JSON.stringify(newSuggestions));
-      await base44.entities.Account.update(session.id, { last_suggestion_refresh: new Date().toISOString() });
+      await updateAccount(session.id, { last_suggestion_refresh: new Date().toISOString() });
     } catch (e) {
       console.error(e);
     } finally {
@@ -76,11 +77,10 @@ export default function DiscoverSuggestions() {
 
   const sendRequest = async (accountId) => {
     try {
-      await base44.entities.ContactRequest.create({
-        from_account_id: session.id,
-        to_account_id: accountId,
-        status: 'pending',
-      });
+      // Through the shared helper, so a previously declined request is reused
+      // rather than re-inserted against the unique constraint — which failed
+      // here silently, since the catch only reached the console.
+      await sendContactRequest({ fromId: session.id, toId: accountId });
       setSentRequests(new Set([...sentRequests, accountId]));
     } catch (e) {
       console.error(e);

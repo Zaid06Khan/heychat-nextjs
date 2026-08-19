@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
 import { getSession } from '@/lib/heychatAuth';
 import { Users, Check, X, UsersRound, UserMinus, Clock } from 'lucide-react';
 import Avatar from '@/components/heychat/Avatar';
@@ -8,7 +7,15 @@ import ContactSearch from '@/components/heychat/ContactSearch';
 import GroupCreateDialog from '@/components/heychat/GroupCreateDialog';
 import DiscoverSuggestions from '@/components/heychat/DiscoverSuggestions';
 import { myGroupInvites, respondToInvite } from '@/lib/groups';
-import { removeContact } from '@/lib/conversations';
+import { removeContact, getOrCreateDirectConversation, createConversation } from '@/lib/conversations';
+import { getAccountsById } from '@/lib/accounts';
+import {
+  getContactIds,
+  getReceivedRequests,
+  getSentRequests,
+  setRequestStatus,
+  withdrawRequest,
+} from '@/lib/contacts';
 import { refreshPending } from '@/lib/pending';
 
 export default function Contacts() {
@@ -23,31 +30,37 @@ export default function Contacts() {
   const navigate = useNavigate();
 
   const loadData = async () => {
-    const sent = await base44.entities.ContactRequest.filter({ from_account_id: session.id, status: 'accepted' });
-    const received = await base44.entities.ContactRequest.filter({ to_account_id: session.id, status: 'accepted' });
-    const contactIds = new Set([
-      ...sent.map((r) => r.to_account_id),
-      ...received.map((r) => r.from_account_id),
+    // Five reads, not 1 + 3N. The shim had no way to fetch several accounts at
+    // once, so every one of these lists looped `Account.get` and paid a request
+    // per person — a screen with twenty contacts made twenty-three round trips.
+    const [contactIds, pending, outgoing] = await Promise.all([
+      getContactIds(session.id),
+      getReceivedRequests(session.id, 'pending'),
+      getSentRequests(session.id, 'pending'),
     ]);
-    const accs = await Promise.all(
-      Array.from(contactIds).map((id) => base44.entities.Account.get(id).catch(() => null))
-    );
-    setContacts(accs.filter(Boolean));
 
-    const pending = await base44.entities.ContactRequest.filter({ to_account_id: session.id, status: 'pending' });
-    const pendingAccs = await Promise.all(
-      pending.map((r) => base44.entities.Account.get(r.from_account_id).catch(() => null))
+    const people = await getAccountsById([
+      ...contactIds,
+      ...pending.map((r) => r.from_account_id),
+      ...outgoing.map((r) => r.to_account_id),
+    ]);
+
+    setContacts([...contactIds].map((id) => people.get(id)).filter(Boolean));
+
+    setRequests(
+      pending
+        .map((r) => ({ ...r, account: people.get(r.from_account_id) }))
+        .filter((r) => r.account)
     );
-    setRequests(pending.map((r, i) => ({ ...r, account: pendingAccs[i] })).filter((r) => r.account));
 
     // Requests you have sent and nobody has answered yet. RLS already limits
     // contact_requests to rows you are a party to, so this is the same read as
     // the one above with the direction reversed.
-    const outgoing = await base44.entities.ContactRequest.filter({ from_account_id: session.id, status: 'pending' });
-    const outgoingAccs = await Promise.all(
-      outgoing.map((r) => base44.entities.Account.get(r.to_account_id).catch(() => null))
+    setSentRequests(
+      outgoing
+        .map((r) => ({ ...r, account: people.get(r.to_account_id) }))
+        .filter((r) => r.account)
     );
-    setSentRequests(outgoing.map((r, i) => ({ ...r, account: outgoingAccs[i] })).filter((r) => r.account));
 
     // Group invitations (0019). Through an RPC because the invitee is not a
     // member of the conversation yet, so conversations RLS will not show them
@@ -63,8 +76,8 @@ export default function Contacts() {
   useEffect(() => { loadData(); }, []);
 
   const acceptRequest = async (req) => {
-    await base44.entities.ContactRequest.update(req.id, { status: 'accepted' });
-    await base44.entities.Conversation.create({
+    await setRequestStatus(req.id, 'accepted');
+    await createConversation({
       type: 'direct',
       participant_ids: [session.id, req.from_account_id],
       disappearing_timer: 0,
@@ -73,7 +86,7 @@ export default function Contacts() {
   };
 
   const declineRequest = async (req) => {
-    await base44.entities.ContactRequest.update(req.id, { status: 'declined' });
+    await setRequestStatus(req.id, 'declined');
     loadData();
   };
 
@@ -86,7 +99,7 @@ export default function Contacts() {
    */
   const withdrawRequest = async (req) => {
     try {
-      await base44.entities.ContactRequest.delete(req.id);
+      await withdrawRequest(req.id);
     } catch (e) {
       console.error(e);
     }
@@ -112,18 +125,8 @@ export default function Contacts() {
   };
 
   const startChat = async (contactId) => {
-    const convs = await base44.entities.Conversation.filter({ type: 'direct', participant_ids: session.id });
-    const existing = convs.find((c) => c.participant_ids.includes(contactId));
-    if (existing) {
-      navigate(`/chat/${existing.id}`);
-    } else {
-      const conv = await base44.entities.Conversation.create({
-        type: 'direct',
-        participant_ids: [session.id, contactId],
-        disappearing_timer: 0,
-      });
-      navigate(`/chat/${conv.id}`);
-    }
+    const conv = await getOrCreateDirectConversation(session.id, contactId);
+    navigate(`/chat/${conv.id}`);
   };
 
   return (

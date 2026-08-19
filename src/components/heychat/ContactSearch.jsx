@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { listAccountsPage } from '@/lib/accounts';
+import { getSentRequests, sendContactRequest } from '@/lib/contacts';
 import { getSession } from '@/lib/heychatAuth';
 import { Search, UserPlus, Check, Clock } from 'lucide-react';
 import Avatar from './Avatar';
@@ -31,7 +32,7 @@ export default function ContactSearch({ onContactAdded }) {
 
   const loadOutgoing = async () => {
     try {
-      const rows = await base44.entities.ContactRequest.filter({ from_account_id: session.id });
+      const rows = await getSentRequests(session.id);
       setOutgoing(Object.fromEntries(rows.map((r) => [r.to_account_id, r.status])));
     } catch (e) {
       console.error(e);
@@ -49,7 +50,7 @@ export default function ContactSearch({ onContactAdded }) {
     }
     setSearching(true);
     try {
-      const accounts = await base44.entities.Account.filter({}, null, 20);
+      const accounts = await listAccountsPage(20);
       const filtered = accounts.filter(
         (a) =>
           a.id !== session.id &&
@@ -67,32 +68,17 @@ export default function ContactSearch({ onContactAdded }) {
     setBusyId(account.id);
     setError('');
     try {
-      const existing = await base44.entities.ContactRequest.filter({
-        from_account_id: session.id,
-        to_account_id: account.id,
+      // Reuse-or-insert, and the "already contacts" case, both live in
+      // sendContactRequest now — they are constraints of the table rather than
+      // of this screen, and two other callers need the same rules.
+      const result = await sendContactRequest({
+        fromId: session.id,
+        toId: account.id,
+        toUsername: account.username,
       });
 
-      if (existing.length > 0) {
-        const row = existing[0];
-        if (row.status === 'accepted') {
-          // Already contacts. Say so rather than pretending to send anything.
-          setOutgoing((o) => ({ ...o, [account.id]: 'accepted' }));
-          return;
-        }
-        // Reused, not re-inserted: the unique constraint means an insert would
-        // fail, so a single decline used to lock you out of ever asking again
-        // — and it did it silently.
-        await base44.entities.ContactRequest.update(row.id, { status: 'pending' });
-      } else {
-        await base44.entities.ContactRequest.create({
-          from_account_id: session.id,
-          to_account_id: account.id,
-          to_username: account.username,
-          status: 'pending',
-        });
-      }
-
-      setOutgoing((o) => ({ ...o, [account.id]: 'pending' }));
+      setOutgoing((o) => ({ ...o, [account.id]: result === 'already-contacts' ? 'accepted' : 'pending' }));
+      if (result === 'already-contacts') return;
       if (onContactAdded) onContactAdded();
     } catch (e) {
       console.error(e);

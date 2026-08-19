@@ -1,10 +1,22 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { getAccountsById } from '@/lib/accounts';
+import { getConversation } from '@/lib/conversations';
+import { createCallRecord } from '@/lib/calls/records';
 import { getSession } from '@/lib/heychatAuth';
 import { Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
 import Avatar from './Avatar';
 
+/**
+ * THE OLD CALL SCREEN, AND IT HAS NEVER WORKED. It calls getUserMedia and
+ * renders your own camera: no RTCPeerConnection, no signalling, no relay, so
+ * two people "on a call" here each watch themselves.
+ *
+ * Real calls are `lib/calls/controller.js` with `CallBar` and `VideoStage`, and
+ * nothing links here — but `/call/:conversationId` still routes to it. It was
+ * migrated off the shim rather than deleted because deleting a route is a
+ * product decision, not plumbing. See FOLLOWUPS §1.
+ */
 export default function CallOverlay() {
   const { conversationId } = useParams();
   const [conversation, setConversation] = useState(null);
@@ -22,19 +34,15 @@ export default function CallOverlay() {
   useEffect(() => {
     (async () => {
       try {
-        const conv = await base44.entities.Conversation.get(conversationId);
+        const conv = await getConversation(conversationId);
         setConversation(conv);
-        const accs = await Promise.all(
-          conv.participant_ids.map((id) => base44.entities.Account.get(id).catch(() => null))
-        );
-        setParticipants(accs.filter(Boolean));
+        const people = await getAccountsById(conv.participant_ids);
+        setParticipants(conv.participant_ids.map((id) => people.get(id)).filter(Boolean));
 
-        await base44.entities.Call.create({
-          conversation_id: conversationId,
-          initiated_by: session.id,
-          participant_ids: conv.participant_ids,
-          status: 'active',
-          started_at: new Date().toISOString(),
+        await createCallRecord({
+          conversationId,
+          initiatedBy: session.id,
+          participantIds: conv.participant_ids,
         });
 
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });

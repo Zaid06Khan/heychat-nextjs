@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { updateAccount } from '@/lib/accounts';
 import { getCurrentAccount, logout, deleteAccount, hasRecoveryPassword } from '@/lib/heychatAuth';
 import { ArrowLeft, Shield, Eye, Users, Trash2, LogOut, Smartphone, AlertTriangle, Globe, KeyRound, MapPin, HardDrive } from 'lucide-react';
 import { LANGUAGES, setLanguage } from '@/lib/i18n';
@@ -32,19 +32,19 @@ export default function Settings() {
   }, []);
 
   const updateSetting = async (key, value) => {
-    await base44.entities.Account.update(account.id, { [key]: value });
+    await updateAccount(account.id, { [key]: value });
     setAccount({ ...account, [key]: value });
   };
 
   const handleLanguageChange = async (lang) => {
-    await base44.entities.Account.update(account.id, { language: lang });
+    await updateAccount(account.id, { language: lang });
     setLanguage(lang);
     setAccount({ ...account, language: lang });
     window.location.reload();
   };
 
   const handleOptOut = async (value) => {
-    await base44.entities.Account.update(account.id, { opt_out_of_suggestions: value });
+    await updateAccount(account.id, { opt_out_of_suggestions: value });
     setAccount({ ...account, opt_out_of_suggestions: value });
   };
 

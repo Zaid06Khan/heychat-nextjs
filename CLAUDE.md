@@ -100,8 +100,11 @@ src/app/                  Next.js App Router
   [[...slug]]/page.jsx    catch-all that mounts the SPA
 src/screens/              the original screens (was src/pages — Next reserves that name)
 src/components/heychat/   the original components
-src/api/base44Client.js   compatibility shim  ─┐  scaffolding, being retired (§8)
-src/lib/shim/             Supabase behind it  ─┘
+src/lib/accounts.js       ─┐
+src/lib/contacts.js        │  what the Base44 shim used to do, by name
+src/lib/conversations.js   │  (§8 — the shim was deleted 2026-08-18)
+src/lib/messages/          │
+src/lib/reports.js        ─┘
 src/lib/supabase/         browser / route-handler / service-role clients
 supabase/migrations/      the database, 0001–0025
 ```
@@ -116,11 +119,17 @@ supabase/migrations/      the database, 0001–0025
 
 `admin.js` imports `server-only`, so the build fails if it reaches a client bundle.
 
-### The shim is shrinking — don't grow it
+### The shim is gone — don't reinvent it
 
-New surfaces (mutes, reactions, typing, push, sending) go **straight to Supabase or to a
-route handler**, never through `TABLES`. `ChatView` still reads through the shim and that
-is the larger remaining half.
+`src/api/base44Client.js` and `src/lib/shim/` were deleted on 2026-08-18. Data access is a
+named helper in `src/lib/` or a route handler. **Do not add a generic entity wrapper back.**
+The one it replaced translated a Base44 filter dialect into PostgREST at runtime, which
+meant it could not express `in (…)` — so every list looped one request per person — and it
+subscribed to whole tables and filtered them in the browser.
+
+Two things to keep doing instead: fetch a set with `getAccountsById` rather than looping
+`getAccount`, and filter realtime **server-side** (`filter: 'conversation_id=eq.…'`) rather
+than subscribing to a table and discarding rows.
 
 ## Invariants worth not regressing
 

@@ -75,3 +75,119 @@ export async function removeContact(myAccountId, otherAccountId) {
 
   if (error) throw new Error(error.message);
 }
+
+/**
+ * Every direct conversation this account is in.
+ *
+ * `participant_ids` is a Postgres array, so membership is containment rather
+ * than equality — the shim inferred that from the column name at runtime, which
+ * is precisely the kind of guessing this migration removes.
+ */
+export async function getDirectConversations(accountId) {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('*')
+    .eq('type', 'direct')
+    .contains('participant_ids', [accountId]);
+
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+/**
+ * The direct conversation with one person, creating it only if there is none.
+ *
+ * Callers used to fetch every direct conversation and scan it in the browser.
+ * The scan is still here because `participant_ids` is an array with no unique
+ * constraint across pairs, so "the one with exactly these two" is not something
+ * PostgREST can ask for — but it is now in one place rather than three.
+ */
+export async function getOrCreateDirectConversation(myAccountId, otherAccountId) {
+  const supabase = getSupabaseBrowserClient();
+
+  const mine = await getDirectConversations(myAccountId);
+  const existing = mine.find((c) => (c.participant_ids || []).includes(otherAccountId));
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from('conversations')
+    .insert({
+      type: 'direct',
+      participant_ids: [myAccountId, otherAccountId],
+      disappearing_timer: 0,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** Create a conversation row directly. Groups, and the accept-request path. */
+export async function createConversation(fields) {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('conversations')
+    .insert(fields)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** One conversation by id. */
+export async function getConversation(id) {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
+ * Every conversation this account is in, newest-updated first.
+ *
+ * The ordering is `updated_date` and that is NOT the order the list shows —
+ * ConversationList re-sorts by last message once it has them, because nothing
+ * bumps a conversation row when a message arrives. This ordering only decides
+ * which 50 rows come back, which is why it is still here.
+ */
+export async function getMyConversations(accountId, limit = 50) {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('*')
+    .contains('participant_ids', [accountId])
+    .order('updated_date', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+/**
+ * Set the disappearing-message timer.
+ *
+ * The only column `authenticated` may UPDATE on `conversations` — 0015 narrowed
+ * the grant to this one, because RLS cannot express "this column but not that
+ * one" and everything else (name, cover, membership, admin) goes through a
+ * SECURITY DEFINER function instead.
+ */
+export async function updateDisappearingTimer(conversationId, seconds) {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from('conversations')
+    .update({ disappearing_timer: seconds })
+    .eq('id', conversationId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}

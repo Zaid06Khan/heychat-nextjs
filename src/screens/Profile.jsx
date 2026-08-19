@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { updateAccount } from '@/lib/accounts';
+import { Core } from '@/lib/media/upload';
 import { getCurrentAccount } from '@/lib/heychatAuth';
 import { Camera, Save, QrCode, Share2 } from 'lucide-react';
 import Avatar from '@/components/heychat/Avatar';
@@ -61,8 +62,8 @@ export default function Profile() {
     setAvatarBusy(true);
 
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
-      await base44.entities.Account.update(account.id, { avatar: file_url });
+      const { file_url } = await Core.UploadFile({ file });
+      await updateAccount(account.id, { avatar: file_url });
       setAvatar(file_url);
       setAccount((a) => (a ? { ...a, avatar: file_url } : a));
     } catch (err) {
@@ -82,7 +83,7 @@ export default function Profile() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await base44.entities.Account.update(account.id, {
+      await updateAccount(account.id, {
         display_name: displayName.trim() || account.username,
         bio: bio.trim(),
         avatar,

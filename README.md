@@ -193,8 +193,7 @@ src/app/                  Next.js App Router
   [[...slug]]/page.jsx    catch-all that mounts the SPA
 src/screens/              the original screens (was src/pages — renamed, see below)
 src/components/heychat/   the original components, unchanged
-src/api/base44Client.js   compatibility shim — same shape the components expect
-src/lib/shim/             Supabase implementation behind that shim
+src/lib/                  accounts, contacts, conversations, messages, calls, media
 src/lib/supabase/         browser / route-handler / service-role clients
 supabase/migrations/      the database
 ```
@@ -339,3 +338,7 @@ changed.
 The catch-all route mounts the original app client-side (`ssr: false`). This let
 the backend be replaced without rewriting 30 screens at once. Screens should move
 to real App Router routes incrementally — see `FOLLOWUPS.md` §8.
+
+The Base44 compatibility shim that made that port possible was **deleted on
+2026-08-18**. Screens now call named helpers in `src/lib/` rather than a runtime
+translation of a Base44 filter dialect.

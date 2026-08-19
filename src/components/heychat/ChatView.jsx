@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { getAccount, getAccountsById } from '@/lib/accounts';
+import { getConversation, updateDisappearingTimer } from '@/lib/conversations';
+import { getRecentMessages } from '@/lib/messages/read';
 import { getSession, getCurrentAccount } from '@/lib/heychatAuth';
 import { sendMessage } from '@/lib/messages/send';
 import { getMute, muteConversation, unmuteConversation, MUTE_OPTIONS } from '@/lib/notifications/mutes';
@@ -66,44 +68,96 @@ export default function ChatView() {
 
   useEffect(() => {
     if (!conversationId) return;
-    let unsub;
 
     /**
-     * Reactions, live.
+     * One channel for messages and reactions, debounced.
      *
-     * They used to arrive only when the thread reloaded for some other reason,
-     * so someone reacting to your message was invisible until you sent one.
-     * `message_reactions` carries no conversation_id, so this cannot be
-     * filtered server-side the way messages are — instead every event the
-     * caller is entitled to see (Realtime enforces RLS) is checked against the
-     * ids currently on screen, and anything else is dropped. Reading those ids
-     * from a ref keeps `messages` out of this effect's dependencies, which
-     * would otherwise tear the channel down and rebuild it on every new
-     * message.
+     * Before: `Message.subscribe()` opened a channel through the shim carrying
+     * EVERY message row in the database and threw away the ones for other
+     * conversations in the browser, and a second channel carried reactions.
+     * Two sockets, and one of them a firehose.
+     *
+     * Now the messages half is filtered server-side by `conversation_id`, so
+     * the rows for other people's chats never leave Postgres. Reactions cannot
+     * be filtered that way — `message_reactions` has no conversation_id — so
+     * every event the caller is entitled to see (Realtime enforces RLS) is
+     * checked against the message ids currently on screen and anything else is
+     * dropped. Reading those ids from a ref keeps `messages` out of this
+     * effect's dependencies, which would otherwise tear the channel down and
+     * rebuild it on every new message.
+     *
+     * The debounce matters most on the reaction path: reacting fires an event
+     * per row, and a burst used to mean a `getReactions` per row.
      */
     const supabase = getSupabaseBrowserClient();
-    const reactionChannel = supabase
-      .channel(`chat-reactions:${conversationId}:${Math.random().toString(36).slice(2)}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'message_reactions' },
-        (payload) => {
-          const id = payload.new?.message_id || payload.old?.message_id;
-          if (!id || !messageIdsRef.current.has(id)) return;
-          getReactions([...messageIdsRef.current]).then(setReactions);
-        }
-      )
-      .subscribe();
+    let channel = null;
+    let cancelled = false;
+    let timer = null;
+    let wantMessages = false;
+    let wantReactions = false;
+
+    const flush = () => {
+      timer = null;
+      if (cancelled) return;
+      if (wantMessages) {
+        wantMessages = false;
+        loadMessages();
+      }
+      if (wantReactions) {
+        wantReactions = false;
+        const ids = [...messageIdsRef.current];
+        if (ids.length) getReactions(ids).then(setReactions);
+      }
+    };
+
+    const schedule = () => {
+      if (timer) return;
+      timer = setTimeout(flush, 120);
+    };
 
     (async () => {
       await loadConversation();
       await loadMessages();
       setMute(await getMute(conversationId));
-      unsub = base44.entities.Message.subscribe((event) => {
-        if (event.data?.conversation_id === conversationId) loadMessages();
-      });
+
+      // Realtime evaluates RLS per subscriber to decide what it may send, and
+      // it needs this session's token to do that. Subscribe first and every
+      // payload comes back empty with a 401 — silently, if the handler ignores
+      // its argument. The await happens before the channel exists, not between
+      // creating and subscribing it.
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (token) {
+        try { await supabase.realtime.setAuth(token); } catch { /* older client */ }
+      }
+      if (cancelled) return;
+
+      channel = supabase
+        .channel(`chat:${conversationId}:${Math.random().toString(36).slice(2)}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${conversationId}`,
+          },
+          () => { wantMessages = true; schedule(); }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'message_reactions' },
+          (payload) => {
+            const id = payload.new?.message_id || payload.old?.message_id;
+            if (!id || !messageIdsRef.current.has(id)) return;
+            wantReactions = true;
+            schedule();
+          }
+        )
+        .subscribe();
 
       const me = await getCurrentAccount();
+      if (cancelled) return;
       typingRef.current = createTypingChannel({
         conversationId,
         accountId: session.id,
@@ -113,8 +167,9 @@ export default function ChatView() {
     })();
 
     return () => {
-      if (unsub) unsub();
-      supabase.removeChannel(reactionChannel);
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (channel) supabase.removeChannel(channel);
       typingRef.current?.close();
       typingRef.current = null;
       setTypingNames([]);
@@ -154,19 +209,18 @@ export default function ChatView() {
 
   const loadConversation = async () => {
     try {
-      const conv = await base44.entities.Conversation.get(conversationId);
+      const conv = await getConversation(conversationId);
       setConversation(conv);
       if (conv.type === 'direct') {
         const otherId = conv.participant_ids.find((id) => id !== session.id);
         if (otherId) {
-          const acc = await base44.entities.Account.get(otherId);
+          const acc = await getAccount(otherId);
           setOtherUser(acc);
         }
       } else {
-        const accs = await Promise.all(
-          conv.participant_ids.map((id) => base44.entities.Account.get(id).catch(() => null))
-        );
-        setMembers(accs.filter(Boolean));
+        // One read for the whole member list, not one per member.
+        const people = await getAccountsById(conv.participant_ids);
+        setMembers(conv.participant_ids.map((id) => people.get(id)).filter(Boolean));
       }
     } catch (e) {
       console.error(e);
@@ -182,9 +236,7 @@ export default function ChatView() {
       // sent and nothing since, and new messages never appeared at all. Nobody
       // hit it because no test conversation had ever been that long; a 220-
       // message fixture built to test reply quotes is what surfaced it.
-      const newest = await base44.entities.Message.filter(
-        { conversation_id: conversationId }, '-created_date', 200
-      );
+      const newest = await getRecentMessages(conversationId, 200);
       const msgs = [...newest].reverse();
       // Still filtered here, but no longer deleted here. The sweep runs every
       // five minutes (0010), so a row can outlive its expiry by a few minutes —
@@ -444,7 +496,7 @@ export default function ChatView() {
   };
 
   const setTimer = async (seconds) => {
-    await base44.entities.Conversation.update(conversationId, { disappearing_timer: seconds });
+    await updateDisappearingTimer(conversationId, seconds);
     setConversation({ ...conversation, disappearing_timer: seconds });
     setShowTimer(false);
   };
@@ -779,7 +831,7 @@ export default function ChatView() {
           // Leaving removes you from participant_ids, at which point RLS stops
           // returning the conversation at all. Get out before rendering a
           // screen the database will no longer answer questions about.
-          const stillIn = await base44.entities.Conversation.get(conversationId).catch(() => null);
+          const stillIn = await getConversation(conversationId).catch(() => null);
           if (!stillIn) navigate('/home');
         }}
       />

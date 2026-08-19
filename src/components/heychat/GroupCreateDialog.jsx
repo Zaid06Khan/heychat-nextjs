@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { getAccountsById } from '@/lib/accounts';
+import { getContactIds } from '@/lib/contacts';
+import { createConversation } from '@/lib/conversations';
 import { getSession } from '@/lib/heychatAuth';
 import { X, Users, Check } from 'lucide-react';
 import Avatar from './Avatar';
@@ -13,22 +15,10 @@ export default function GroupCreateDialog({ open, onClose, onCreated }) {
   useEffect(() => {
     if (!open) return;
     (async () => {
-      const accepted = await base44.entities.ContactRequest.filter({
-        from_account_id: session.id,
-        status: 'accepted',
-      });
-      const received = await base44.entities.ContactRequest.filter({
-        to_account_id: session.id,
-        status: 'accepted',
-      });
-      const contactIds = new Set([
-        ...accepted.map((r) => r.to_account_id),
-        ...received.map((r) => r.from_account_id),
-      ]);
-      const accounts = await Promise.all(
-        Array.from(contactIds).map((id) => base44.entities.Account.get(id).catch(() => null))
-      );
-      setContacts(accounts.filter(Boolean));
+      // Two reads instead of two plus one per contact.
+      const contactIds = await getContactIds(session.id);
+      const people = await getAccountsById([...contactIds]);
+      setContacts([...contactIds].map((id) => people.get(id)).filter(Boolean));
     })();
   }, [open]);
 
@@ -36,7 +26,7 @@ export default function GroupCreateDialog({ open, onClose, onCreated }) {
     const memberIds = Object.keys(selected).filter((k) => selected[k]);
     if (!name.trim() || memberIds.length === 0) return;
     const participant_ids = [session.id, ...memberIds];
-    const conv = await base44.entities.Conversation.create({
+    const conv = await createConversation({
       type: 'group',
       participant_ids,
       name: name.trim(),

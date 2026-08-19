@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { Core } from '@/lib/media/upload';
 import { Send, Paperclip, Mic, Square, X, Reply, Pencil } from 'lucide-react';
 
 export default function MessageInput({
@@ -47,7 +47,7 @@ export default function MessageInput({
     e.target.value = '';
     setUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+      const { file_url } = await Core.UploadFile({ file });
       const type = file.type.startsWith('image/')
         ? 'image'
         : file.type.startsWith('video/')
@@ -73,7 +73,7 @@ export default function MessageInput({
         const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
         setUploading(true);
         try {
-          const { file_url } = await base44.integrations.Core.UploadFile({ file });
+          const { file_url } = await Core.UploadFile({ file });
           onSend({ message_type: 'voice', media_url: file_url });
         } catch (err) {
           console.error(err);
