@@ -267,10 +267,45 @@ try {
 
   console.log('\n--- 2. CONTACTS AND CONVERSATION ---');
   await A.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
+
+  // THE "CAN FIND B" ASSERTION BELOW PASSED THROUGHOUT THE BUG IT LOOKS LIKE IT
+  // WOULD CATCH. Search used to fetch a page of 20 accounts and filter it in the
+  // browser: perfect in a project with a handful of rows, broken for most people
+  // in one with hundreds. This suite never noticed, because the accounts it
+  // creates are among the few that exist.
+  //
+  // Results cannot show the difference here for the same reason, so the query
+  // itself is what gets checked: if the request carries an `ilike` filter, the
+  // database did the matching and the page size stopped mattering.
+  const searchQuery = A.waitForRequest(
+    (r) =>
+      r.url().includes('/rest/v1/accounts') &&
+      r.url().includes('ilike') &&
+      r.url().includes('or='),
+    { timeout: 15000 }
+  ).then(() => true).catch(() => false);
+
   await A.fill('input[placeholder="Search by username..."]', userB);
+  check(await searchQuery,
+    'the search filter is sent to the database, not applied in the browser');
   check(await seen(A, `text=@${userB}`), 'A can find B by username search');
+
+  // A term nobody matches must come back empty rather than erroring.
+  await A.fill('input[placeholder="Search by username..."]', 'zz_no_such_person_zz');
+  check(await seen(A, 'text=No users found'), 'a search with no matches says so');
+
+  // And a term made only of characters the sanitiser strips must not turn into
+  // "match everything" — `%` is a wildcard on the way to Postgres.
+  await A.fill('input[placeholder="Search by username..."]', '%%');
+  check(await gone(A, `text=@${userB}`, 5000),
+    'a wildcard-only search does not return the whole table');
+
+  await A.fill('input[placeholder="Search by username..."]', userB);
+  await seen(A, `text=@${userB}`);
   await A.locator('button:has-text("Add")').first().click();
   check(await seen(A, 'text=Requested'), 'the request is sent');
+
+
 
   await B.goto(`${APP}/contacts`, { waitUntil: 'domcontentloaded' });
   await B.locator('button:has-text("Requests")').click();

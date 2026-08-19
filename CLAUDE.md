@@ -31,7 +31,7 @@ npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
 npm run test:e2e -- http://localhost:3000       # 117 assertions, backend boundaries
-npm run test:browser -- http://localhost:3000   # 120 assertions, real UI, 3 contexts
+npm run test:browser -- http://localhost:3000   # 123 assertions, real UI, 3 contexts
 npm run db:plan        # migrations in order — needs no database
 npm run db:status      # what is applied, what is pending
 npm run push:keys      # print VAPID env lines

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { listAccountsPage } from '@/lib/accounts';
+import { searchAccounts } from '@/lib/accounts';
 import { getSentRequests, sendContactRequest } from '@/lib/contacts';
 import { getSession } from '@/lib/heychatAuth';
 import { Search, UserPlus, Check, Clock } from 'lucide-react';
@@ -50,13 +50,11 @@ export default function ContactSearch({ onContactAdded }) {
     }
     setSearching(true);
     try {
-      const accounts = await listAccountsPage(20);
-      const filtered = accounts.filter(
-        (a) =>
-          a.id !== session.id &&
-          a.username.toLowerCase().includes(val.toLowerCase())
-      );
-      setResults(filtered);
+      // The database does the matching now. This used to pull a page of 20
+      // accounts and filter it here, which meant anyone outside those 20 could
+      // not be found at all — and the screen said "No users found" rather than
+      // admitting it had only looked at a fraction of the table.
+      setResults(await searchAccounts(val, { limit: 20, excludeIds: [session.id] }));
     } catch (e) {
       console.error(e);
     } finally {

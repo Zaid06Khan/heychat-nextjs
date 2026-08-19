@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X, Crown, UserMinus, UserPlus, LogOut, Pencil, Check, AlertTriangle } from 'lucide-react';
-import { listAccountsPage } from '@/lib/accounts';
+import { searchAccounts } from '@/lib/accounts';
 import { getSession } from '@/lib/heychatAuth';
 import Avatar from './Avatar';
 import { inviteMember, removeMember, leaveGroup, updateGroupDetails } from '@/lib/groups';
@@ -45,20 +45,14 @@ export default function GroupInfoDialog({ open, onClose, conversation, members, 
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const found = await listAccountsPage(200);
-        const q = search.trim().toLowerCase();
-        if (!cancelled) {
-          setResults(
-            found
-              .filter(
-                (a) =>
-                  !conversation.participant_ids.includes(a.id) &&
-                  ((a.username || '').toLowerCase().includes(q) ||
-                    (a.display_name || '').toLowerCase().includes(q))
-              )
-              .slice(0, 5)
-          );
-        }
+        // Matched and narrowed in the query. Fetching 200 rows and filtering
+        // them here meant anybody outside that page was uninvitable, and the
+        // people already in the group ate into the page before it was searched.
+        const found = await searchAccounts(search, {
+          limit: 5,
+          excludeIds: conversation.participant_ids,
+        });
+        if (!cancelled) setResults(found);
       } catch {
         if (!cancelled) setResults([]);
       }

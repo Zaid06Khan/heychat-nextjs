@@ -23,7 +23,7 @@ the four DONE sections below each carry gaps that are still open.
 | 5 | CLOSED | Disappearing-message cleanup | No → `FOLLOWUPS-CLOSED.md` |
 | 6 | CLOSED | Device binding gone; device list replaces it | 0018/0022 applied. Untested: revoking a *second* device |
 | 7 | LATENT | Username changes would orphan the auth user | Yes — cheap now, expensive later |
-| 8 | CLOSED | Base44 shim retired | No — deleted 2026-08-18. Gaps: dead `CallOverlay` route, one-page contact search |
+| 8 | CLOSED | Base44 shim retired | No — deleted 2026-08-18. Gap: dead `CallOverlay` route |
 | 9 | OPEN | Smaller items | Yes — 7 open, incl. two credentials to rotate. Four closed 2026-08-18 |
 | 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window |
 | 11 | DONE | Replies, reactions, edit, delete, typing | 0016/0017/0020 applied. Gaps: notification not cleared on delete, read race, no optimistic send |
@@ -431,13 +431,30 @@ section's old text as the last `base44.auth` caller, no longer exists.
 
 **Still open:**
 
-- **Contact search only ever sees 20 accounts.** `ContactSearch` fetches a page
-  and filters it in the browser, so someone outside that page cannot be found by
-  typing their name — search silently returns nothing rather than saying it
-  looked at a fraction of the table. Inherited from the shim call it replaced
-  (`Account.filter({}, null, 20)`) and preserved through §8 on purpose, because
-  that pass was plumbing. The fix is a server-side `ilike` in
-  `lib/accounts.js`, and it changes results, which is why it is its own decision.
+- ~~**Contact search only ever sees 20 accounts.**~~ **Fixed 2026-08-19.**
+  `ContactSearch` and the group-invite search both go through
+  `searchAccounts()` in `lib/accounts.js` now, which asks Postgres with `ilike`
+  on username and display name and excludes yourself — or the people already in
+  the group — in the query rather than after it, so the row limit is spent on
+  results the caller can use.
+
+  **Search terms are sanitised, and the reason is the query grammar.**
+  `or=(username.ilike.…,display_name.ilike.…)` is one query-string parameter
+  PostgREST parses itself, so a comma ends the filter early and a bracket closes
+  the group — either silently changes the query rather than failing. `%` and `*`
+  are stripped too: typing one should not quietly match every account.
+
+  **`_` is still a single-character wildcard, and escaping it does not work.**
+  Measured against this project: `%test\_%` and `%test_%` both return
+  `testbuddy`, `Testerbot` and `Test456`, so the backslash is not honoured and
+  an "escape" would be a comment claiming something untrue. Searching `pw_a`
+  therefore also matches `pwXa`. A search box returning a superset is a much
+  better failure than the one this replaced.
+
+  **The suite's existing "A can find B by username search" passed throughout the
+  bug**, because the accounts it creates are among the handful that exist. The
+  new assertion checks the *request* instead: if it carries an `ilike` filter,
+  the database did the matching and the page size stopped mattering.
 
 - **A sent contact request had no home — fixed 2026-08-18.** The "Sent" tick was
   a `sentTo` object in `ContactSearch` state, so it lived exactly as long as the

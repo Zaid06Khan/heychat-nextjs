@@ -52,17 +52,59 @@ export async function getAccountsById(ids) {
 }
 
 /**
- * The account list contact search works from.
+ * Turns what somebody typed into a pattern PostgREST can be trusted with.
  *
- * NOTE, AND THIS IS NOT A TRANSLATION ARTEFACT: this fetches a page of accounts
- * and the caller filters it in the browser, which is exactly what the shim call
- * `Account.filter({}, null, 20)` did. It means search only ever sees these rows,
- * so somebody outside them cannot be found by typing their name. Preserved
- * as-is here because this pass is plumbing; see FOLLOWUPS §9 for the fix, which
- * is one `ilike` away.
+ * `or=(username.ilike.…,display_name.ilike.…)` is ONE query-string parameter
+ * that PostgREST parses itself, so characters with meaning in that grammar have
+ * to go: a comma ends the filter early and a bracket closes the group, either
+ * of which silently changes the query rather than failing. `%` and `*` are
+ * removed for a different reason — typing one should not quietly match every
+ * account in the table.
+ *
+ * `_` IS LEFT ALONE, AND IT IS A SINGLE-CHARACTER WILDCARD. Escaping it as
+ * `\_` does nothing here: measured against this project, `%test\_%` and
+ * `%test_%` both return `testbuddy`, `Testerbot` and `Test456` — the backslash
+ * is not honoured, so an "escape" would be a comment claiming something untrue.
+ * The effect is that searching `pw_a` also matches `pwXa`. For a search box
+ * that returns a superset, which is a good deal better than the alternative
+ * shape of this bug.
  */
-export async function listAccountsPage(limit = 20) {
-  return unwrap(await client().from('accounts').select('*').limit(limit)) || [];
+function likePattern(term) {
+  const cleaned = String(term || '').trim().replace(/[,()%*\\]/g, '');
+  return cleaned ? `%${cleaned}%` : '';
+}
+
+/**
+ * Find people by username or display name.
+ *
+ * THIS REPLACES A REAL BUG. It used to fetch a page of accounts and filter that
+ * page in the browser, so search only ever saw the first 20 rows the database
+ * happened to return — past twenty accounts, most people simply could not be
+ * found by typing their name, and the screen said "No users found" rather than
+ * admitting it had looked at a fraction of the table.
+ *
+ * @param {string} term
+ * @param {{ limit?: number, excludeIds?: string[] }} options
+ */
+export async function searchAccounts(term, { limit = 20, excludeIds = [] } = {}) {
+  const pattern = likePattern(term);
+  if (!pattern) return [];
+
+  let query = client()
+    .from('accounts')
+    .select('*')
+    .or(`username.ilike.${pattern},display_name.ilike.${pattern}`)
+    .limit(limit);
+
+  // Yourself, and anyone already in the group. Excluded in the query rather
+  // than after it, so the limit is spent on results the caller can use — the
+  // browser-side version could return a page that was entirely filtered away.
+  const exclude = excludeIds.filter(Boolean);
+  if (exclude.length > 0) {
+    query = query.not('id', 'in', `(${exclude.join(',')})`);
+  }
+
+  return unwrap(await query) || [];
 }
 
 /** Every account whose id is in `ids`. Used by group member lists. */
