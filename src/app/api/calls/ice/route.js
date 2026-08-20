@@ -42,14 +42,21 @@ export async function GET(request) {
   const rl = check(`ice:${accountId}:${clientKey(request)}`, 30, 60 * 1000);
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
 
-  const { iceServers, ttl, relay } = buildIceServers({
+  const { iceServers, ttl, relay, provider } = await buildIceServers({
+    // Cloudflare wins where both are configured — it is the path that needs no
+    // server to run. `docs/TURN.md` has the comparison behind that default.
+    cloudflareKeyId: process.env.CLOUDFLARE_TURN_KEY_ID,
+    cloudflareApiToken: process.env.CLOUDFLARE_TURN_API_TOKEN,
     urls: process.env.TURN_URLS,
     secret: process.env.TURN_STATIC_AUTH_SECRET,
     accountId,
   });
 
+  // `provider` is for diagnosis, not for the browser to branch on: "no relay"
+  // and "the relay provider is down" look identical from the client otherwise,
+  // and they need different fixes.
   return Response.json(
-    { iceServers, ttl, relay },
+    { iceServers, ttl, relay, provider },
     { headers: { 'Cache-Control': 'no-store, private' } }
   );
 }

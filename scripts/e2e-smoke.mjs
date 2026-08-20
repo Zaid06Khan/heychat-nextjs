@@ -1059,11 +1059,20 @@ console.log('\n--- 15. TURN CREDENTIALS ---');
 // shipping a relay password to every browser in a NEXT_PUBLIC_ variable — the
 // same shape as the key that had to be rotated on 2026-08-19.
 //
-// coturn's `use-auth-secret` mode is what makes short-lived credentials
-// possible without a user database on the relay: the username is
-// `<expiry-unix>:<account-id>` and the password is
+// TWO BACKENDS, ONE RESPONSE SHAPE. coturn's `use-auth-secret` mode makes
+// short-lived credentials possible without a user database on the relay: the
+// username is `<expiry-unix>:<account-id>` and the password is
 // base64(HMAC-SHA1(shared-secret, username)), so coturn re-derives the password
-// itself and refuses anything past its own expiry.
+// itself and refuses anything past its own expiry. Cloudflare mints its own
+// opaque pair through an API instead. `provider` in the response says which
+// answered, and the assertions below branch on it.
+//
+// READ FROM `.env.local`, NOT process.env. This script parses that file itself
+// and nothing exports it — so a leak check written against `process.env` passes
+// by comparing against undefined, which is worse than no check at all.
+const turnSecret = env.TURN_STATIC_AUTH_SECRET || process.env.TURN_STATIC_AUTH_SECRET;
+const cfToken = env.CLOUDFLARE_TURN_API_TOKEN || process.env.CLOUDFLARE_TURN_API_TOKEN;
+
 const iceAnon = await fetch(APP + '/api/calls/ice');
 check(iceAnon.status === 401, 'the ICE endpoint refuses anyone who is not signed in',
   `status=${iceAnon.status}`);
@@ -1087,19 +1096,40 @@ check(hasStun, 'STUN is always offered, relay or no relay');
 // NO SECRET MAY APPEAR IN THE RESPONSE. The shared secret proves the app is
 // entitled to mint credentials; handing it out would let anyone mint their own.
 const iceBody = JSON.stringify(iceJson || {});
-check(!process.env.TURN_STATIC_AUTH_SECRET || !iceBody.includes(process.env.TURN_STATIC_AUTH_SECRET),
+check(!turnSecret || !iceBody.includes(turnSecret),
   'and never the shared secret itself');
 
 const relay = (iceJson?.iceServers || []).find((s) =>
   [].concat(s.urls || []).some((u) => String(u).startsWith('turn:') || String(u).startsWith('turns:'))
 );
 
+// `provider` says WHICH backend answered, and the assertions below differ by it
+// — a Cloudflare credential is opaque and cannot be recomputed, a coturn one
+// must be. Without this the suite would either skip the check that matters or
+// fail against a perfectly good relay.
+check(['none', 'coturn', 'cloudflare'].includes(iceJson?.provider),
+  'the response names which relay backend answered', `provider=${iceJson?.provider}`);
+check(Boolean(relay) === (iceJson?.provider !== 'none'),
+  'and that name agrees with whether a relay is actually in the list');
+
 if (!relay) {
   // The honest state of this project today, and it is a PASS rather than a
   // skip: STUN-only is the documented fallback, and the assertion that matters
-  // is that a missing relay degrades instead of breaking.
+  // is that a missing relay degrades instead of breaking. It also covers the
+  // relay provider being DOWN — same degradation, deliberately.
   check(iceRes.status === 200 && hasStun,
     'no relay configured, so STUN-only is served rather than an error (FOLLOWUPS §1)');
+} else if (iceJson.provider === 'cloudflare') {
+  // Their credentials are opaque — there is no shared secret here and nothing
+  // to recompute, so what is checkable is that a usable pair came back.
+  check(Boolean(relay.username) && Boolean(relay.credential),
+    'the Cloudflare relay carries a username and credential');
+  const urls = [].concat(relay.urls || []).map(String);
+  check(urls.some((u) => u.startsWith('turns:') && u.includes(':443')),
+    'and TURNS on 443, which is the transport that gets through strict firewalls',
+    urls.find((u) => u.includes(':443')) || urls[0] || '');
+  check(!cfToken || !iceBody.includes(cfToken),
+    'and the API token never reaches the browser');
 } else {
   const [expiry, accountId] = String(relay.username || '').split(':');
   check(/^\d+$/.test(expiry) && Number(expiry) * 1000 > Date.now(),
@@ -1111,9 +1141,9 @@ if (!relay) {
 
   // Recomputed here rather than trusted. If this does not match, coturn will
   // reject the credential too, and the call fails with no explanation.
-  if (process.env.TURN_STATIC_AUTH_SECRET) {
+  if (turnSecret) {
     const { createHmac } = await import('node:crypto');
-    const expected = createHmac('sha1', process.env.TURN_STATIC_AUTH_SECRET)
+    const expected = createHmac('sha1', turnSecret)
       .update(relay.username)
       .digest('base64');
     check(relay.credential === expected,

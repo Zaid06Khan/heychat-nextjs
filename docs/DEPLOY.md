@@ -49,8 +49,14 @@ Set each of these for **Production, Preview and Development**:
 | `VAPID_PRIVATE_KEY` | **secret** |
 | `VAPID_SUBJECT` | e.g. `mailto:you@yourdomain` |
 | `CRON_SECRET` | any long random string; the sweep refuses everything without it |
-| `TURN_URLS` | optional; comma-separated `turn:`/`turns:` URLs. No relay without it — see `docs/TURN.md` |
+| `CLOUDFLARE_TURN_KEY_ID` | optional; the recommended relay path — see `docs/TURN.md` |
+| `CLOUDFLARE_TURN_API_TOKEN` | **secret.** Cloudflare Realtime TURN token |
+| `TURN_URLS` | optional; self-hosted coturn instead. Comma-separated `turn:`/`turns:` URLs |
 | `TURN_STATIC_AUTH_SECRET` | **secret.** The same string coturn's `static-auth-secret` is set to |
+
+**Set one pair or the other, not both.** Cloudflare wins where both are present.
+With neither, calls fall back to STUN alone and the ~15-20% who need a relay
+cannot connect — which is a worse app, not a broken one.
 
 **There is deliberately no `NEXT_PUBLIC_TURN_*`.** A relay credential is a
 licence to spend bandwidth, so it is minted per-request by `/api/calls/ice` and

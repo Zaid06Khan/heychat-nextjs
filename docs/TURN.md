@@ -9,6 +9,94 @@ short-lived credentials, `src/lib/calls/ice.js` fetches and caches them, and
 `CallBar` explains a failed call when no relay is configured. **Set two
 environment variables and it starts being used.** Nothing else changes.
 
+## Two ways to do it, and which was chosen
+
+**Cloudflare Realtime TURN is the chosen path** (2026-08-20). Self-hosted coturn
+still works and is documented below, but it is the fallback, not the default.
+
+|  | Cloudflare | Self-hosted coturn |
+|---|---|---|
+| Cost at ~60 GB/month | **Free** — 1,000 GB/month included, then $0.05/GB | Free on Oracle Always Free, or ~$5-6/month VPS |
+| Server to run | None | One, with patching and monitoring |
+| TLS certificate | Theirs | Yours, plus renewal |
+| TURN over 443 | Yes | Only if you configure and certify it |
+| Attribution | Opaque username, not per-account | Account id is inside the username |
+| Who sees the media | Cloudflare relays it, encrypted | You relay it, encrypted |
+
+**Why not Oracle Cloud Always Free**, which genuinely would have worked — 10 TB
+of monthly egress against a ~60 GB need, and coturn is bandwidth-bound rather
+than CPU-bound, so their 1 GB micro instance is ample. The catch is that Oracle
+reclaims idle Always Free compute when, over any 7-day window, CPU 95th
+percentile is under 20% **and** network is under 20%. A relay at this scale is
+idle almost all the time and uses about 0.5% of that network allowance, so it
+fits the reclamation profile almost exactly. A relay that disappears is worse
+than no relay, because it fails the calls that were working.
+
+**In both cases the media is encrypted end-to-end.** WebRTC mandates DTLS-SRTP
+and the keys are negotiated between the two browsers, so a relay forwards
+packets it cannot read. What Cloudflare would see is metadata: which addresses
+relay to which, and how much.
+
+---
+
+## Cloudflare: the whole setup
+
+1. In the Cloudflare dashboard, **Realtime → TURN**, create a TURN key. You get
+   a **key ID** and an **API token**.
+2. Set both, server-side only:
+
+```bash
+CLOUDFLARE_TURN_KEY_ID=<the key id>
+CLOUDFLARE_TURN_API_TOKEN=<the token>
+```
+
+That is the entire deployment. There is no server, no certificate and no
+firewall rule.
+
+`buildIceServers()` calls
+`POST https://rtc.live.cloudflare.com/v1/turn/keys/<id>/credentials/generate-ice-servers`
+with `{"ttl": 28800}` and passes the returned `iceServers` array through, with
+our STUN entry prepended. Their response already contains the full URL set
+including `turns:turn.cloudflare.com:443?transport=tcp`, which is the transport
+that matters most — a firewall strict enough to need a relay usually blocks 3478
+and 5349 as well.
+
+**If their API is unreachable the app serves STUN alone** rather than failing.
+The request has a 5-second timeout because it sits in the path of starting a
+call; the browser caches for the credential's lifetime, so it is normally once
+per session.
+
+**What is lost versus coturn:** their username is opaque, so a relay session
+cannot be traced back to an account the way the self-hosted scheme allows. There
+is a revoke endpoint (`/credentials/<username>/revoke`) if that is ever needed,
+but nothing here calls it.
+
+---
+
+## Checking it works, either way
+
+**1. Does the app think a relay is configured?** Signed in, in the browser
+console:
+
+```js
+await fetch('/api/calls/ice').then((r) => r.json())
+```
+
+`relay: true` with `provider: "cloudflare"` (or `"coturn"`) and an `iceServers`
+entry carrying a `turn:`/`turns:` URL means it is wired up. `provider: "none"`
+means either nothing is configured **or** the provider was unreachable and it
+degraded — check the server log for `cloudflare TURN unavailable`, which is the
+line that separates those two.
+
+`scripts/e2e-smoke.mjs` §15 asserts the same thing on every run, and branches on
+`provider` so it stays meaningful under either backend.
+
+**2. Does a real call actually use it?** Harder, and worth doing once. Put one
+side on mobile data with wifi off, call, and check `chrome://webrtc-internals`
+on the other side for a selected candidate pair whose remote candidate type is
+`relay`. A relay that is configured but never selected is the normal case — most
+calls do not need it.
+
 ---
 
 ## Why this exists at all
@@ -41,8 +129,8 @@ packets it cannot decrypt. A relayed call is exactly as private as a direct one.
 ## What it costs
 
 The relay carries **the whole call, in both directions, for its whole
-duration.** That is the entire cost story and it is why this is self-hosted
-rather than bought per-minute.
+duration.** That is the entire cost story, and it is why the number to compare
+between providers is bandwidth rather than CPU or hours.
 
 | | Bandwidth through the relay |
 |---|---|
@@ -54,22 +142,29 @@ Only the 15-20% that cannot connect directly ever touch it. So for a hundred
 people making one 10-minute video call a day, expect on the order of 15-20 calls
 relayed, ~75 MB each, so **1-2 GB a day**.
 
-A small VPS with a few TB of monthly transfer covers that many times over.
-**$5-6/month** at Hetzner, DigitalOcean or Vultr is the realistic figure, and
-bandwidth is the thing to check when comparing them — not CPU, which coturn
-barely uses.
+That is roughly **60 GB a month**, which is the number every option below should
+be measured against:
 
-**The managed alternatives**, if you would rather not run a box: Cloudflare
-Calls, Twilio's Network Traversal Service, Metered, Xirsys. They bill per
-gigabyte, typically around $0.40-0.50/GB, which at the volume above is a few
-dollars a month — comparable, until it isn't. They would need a different
-`/api/calls/ice` implementation, because each mints credentials through its own
-API rather than by HMAC. That is a small change, maybe an hour, if you go that
-way.
+- **Cloudflare** includes 1,000 GB/month, so this is about 6% of the free
+  allowance. Past it, $0.05/GB — traffic would have to grow more than sixteenfold
+  before the bill reached a dollar.
+- **Oracle Cloud Always Free** allows 10 TB/month of egress, roughly 170× the
+  need. Free forever, with the idle-reclamation caveat above.
+- **A small VPS** at Hetzner, DigitalOcean or Vultr is ~$5-6/month with a few TB
+  of transfer — bandwidth is what to compare, not CPU, which coturn barely uses.
+
+The other managed providers — Twilio's Network Traversal Service, Metered,
+Xirsys — bill around $0.40-0.50/GB with no meaningful free tier, so they are
+roughly ten times Cloudflare's rate at this volume.
 
 ---
 
-## What the server needs
+## Self-hosted coturn, if you want it instead
+
+Everything below this line is the fallback path. None of it is needed if you
+are using Cloudflare.
+
+### What the server needs
 
 - **A real public IPv4 address.** Not behind a NAT of its own if avoidable; see
   `external-ip` below if it is. This is the one hard requirement — a relay whose
@@ -94,7 +189,7 @@ way.
 
 ---
 
-## Configuration
+### Configuration
 
 `/etc/turnserver.conf`:
 
@@ -186,7 +281,7 @@ minting these is a free relay for whoever finds it.
 
 ---
 
-## Checking it actually works
+### Checking coturn actually works
 
 **1. Is coturn running and authenticating?**
 
@@ -209,21 +304,6 @@ No `relay` line means one of, in order of likelihood: the relay port range is
 closed on the firewall; `external-ip` is wrong; the secret does not match; the
 credential has already expired.
 
-**3. Does the app see it?** Signed in, in the browser console:
-
-```js
-await fetch('/api/calls/ice').then((r) => r.json())
-```
-
-`relay: true` and an `iceServers` entry with a `turn:` URL means the app is
-configured. `scripts/e2e-smoke.mjs` §15 asserts the same thing, including
-recomputing the HMAC the way coturn will.
-
-**4. Does a real call use it?** Harder, and worth doing once. Put one side on
-mobile data with wifi off, call, and check `chrome://webrtc-internals` on the
-other side for a selected candidate pair whose remote candidate type is
-`relay`.
-
 ### What is NOT verified by any of the above
 
 That the relay carries media **under load**, and that the port range is wide
@@ -236,10 +316,13 @@ rule together, or calls start failing to allocate once you are busy.
 ## Known gaps
 
 - **The credential is fetched when the first call starts**, which adds one
-  same-origin round trip to call setup — and again on the answering side. It is
-  cached for the credential's whole lifetime afterwards, so it is once per
-  session in practice. Warming it when a conversation opens would remove even
-  that; it has not been done because it has not been measured to matter.
+  same-origin round trip to call setup — and again on the answering side. On the
+  Cloudflare path that round trip contains a second one, to their API, capped at
+  five seconds. It is cached for the credential's whole lifetime afterwards, so
+  it is once per session in practice. Warming it when a conversation opens would
+  remove even that; it has not been done because it has not been measured to
+  matter, and it would spend a credential per conversation opened rather than
+  per call placed.
 - **`hasTurn()` is false until the first fetch**, so the "some networks need a
   relay" explanation in `CallBar` is only accurate once a call has been
   attempted. That is the right direction to be wrong in — it offers the
@@ -249,3 +332,14 @@ rule together, or calls start failing to allocate once you are busy.
 - **No per-account bandwidth limit.** coturn can cap it (`user-quota`,
   `total-quota`) but the app does not set one, and a credential is good for
   eight hours once minted. Worth revisiting if this is ever public.
+- **On Cloudflare there is no per-account attribution.** Their username is
+  opaque, so a relay session cannot be traced back to an account the way the
+  coturn scheme allows — the account id is not in it. If that is ever needed,
+  log the returned username against `accountId` when it is minted; nothing does
+  today.
+- **Nothing revokes a Cloudflare credential.** They expose
+  `/credentials/<username>/revoke`, and the obvious use is a suspended account,
+  but suspension does not call it — the credential simply expires on its own.
+- **Neither path is verified against a live relay.** §15 checks the format and
+  the shape; that coturn accepts an HMAC credential, or that Cloudflare's relay
+  carries media, needs a real relay and real calls.

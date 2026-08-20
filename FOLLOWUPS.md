@@ -175,12 +175,23 @@ visibility check is doing real work. §7e drives the no-camera path end to end.
   credential is minted per request now, expires in eight hours, and names the
   account it was issued to so a relay log is attributable.
 
-  **Not verified, and cannot be until a relay exists:** that coturn accepts
-  these credentials in practice, and that media actually flows through it.
-  `e2e-smoke.mjs` §15 recomputes the HMAC the way coturn will, which is as close
-  as this gets without a server. Hosting is undecided — self-hosted coturn on a
-  ~$5 VPS or a per-GB managed provider; the latter would need a different
-  `/api/calls/ice` body, roughly an hour of work.
+  **Cloudflare Realtime TURN is the chosen host, 2026-08-20**, and that path is
+  built too. Two variables — `CLOUDFLARE_TURN_KEY_ID` and
+  `CLOUDFLARE_TURN_API_TOKEN` — and there is no server, no certificate and no
+  firewall rule. Free to 1,000 GB/month against a need of roughly 60 GB, then
+  $0.05/GB. It also terminates TURNS on 443, which is the transport that gets
+  through the firewalls that create the need in the first place.
+
+  Oracle Cloud Always Free was the other real candidate and would have worked on
+  paper — 10 TB/month of egress. It was rejected because Oracle reclaims idle
+  Always Free compute when CPU and network both sit under 20% for seven days,
+  which is exactly the profile of a relay at this scale.
+
+  **Not verified, and cannot be until a relay exists:** that coturn accepts an
+  HMAC credential in practice, and that either relay actually carries media.
+  §15 recomputes the HMAC the way coturn will and branches on `provider` so it
+  stays meaningful under either backend, but with neither configured it exercises
+  the STUN-only path only.
 - ~~**Ringing only reaches you inside that conversation.**~~ **Fixed
   2026-08-18 with push.** `watchForCalls` is still scoped to the chat on screen
   — listening everywhere would mean one channel per conversation, permanently —
