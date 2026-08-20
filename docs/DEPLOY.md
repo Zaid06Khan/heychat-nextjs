@@ -49,6 +49,13 @@ Set each of these for **Production, Preview and Development**:
 | `VAPID_PRIVATE_KEY` | **secret** |
 | `VAPID_SUBJECT` | e.g. `mailto:you@yourdomain` |
 | `CRON_SECRET` | any long random string; the sweep refuses everything without it |
+| `TURN_URLS` | optional; comma-separated `turn:`/`turns:` URLs. No relay without it — see `docs/TURN.md` |
+| `TURN_STATIC_AUTH_SECRET` | **secret.** The same string coturn's `static-auth-secret` is set to |
+
+**There is deliberately no `NEXT_PUBLIC_TURN_*`.** A relay credential is a
+licence to spend bandwidth, so it is minted per-request by `/api/calls/ice` and
+expires on its own. Setting a relay password as a `NEXT_PUBLIC_` variable would
+publish it in the browser bundle to anyone who opened devtools.
 
 ```bash
 vercel env add SUPABASE_SERVICE_ROLE_KEY production

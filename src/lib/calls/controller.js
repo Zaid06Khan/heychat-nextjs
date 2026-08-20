@@ -246,8 +246,13 @@ function attachRemoteAudio(stream) {
   });
 }
 
-function newPeerConnection() {
-  const peer = new RTCPeerConnection(getIceConfig());
+// ASYNC SINCE 2026-08-20. The ICE configuration is fetched now rather than read
+// from the bundle, because a relay credential that expires cannot be baked in
+// at build time. `getIceConfig()` caches for the credential's lifetime and
+// falls back to STUN alone if the endpoint cannot be reached, so this await is
+// normally a no-op after the first call of a session and never a failure point.
+async function newPeerConnection() {
+  const peer = new RTCPeerConnection(await getIceConfig());
 
   peer.onicecandidate = (e) => {
     if (!e.candidate) return;
@@ -493,7 +498,7 @@ export async function startCall({
 
   try {
     channel = await openChannel(conversationId, meId);
-    pc = newPeerConnection();
+    pc = await newPeerConnection();
     localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
 
     // THE OFFER DECIDES WHAT THE CALL CAN CARRY. An answer cannot introduce a
@@ -552,7 +557,7 @@ export async function acceptCall() {
   publish({ ...state, cameraOn: gotVideo, cameraAvailable: gotVideo, localStream });
 
   try {
-    pc = newPeerConnection();
+    pc = await newPeerConnection();
     localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
 
     await pc.setRemoteDescription(new RTCSessionDescription(state.offer));

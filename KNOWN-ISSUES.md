@@ -38,10 +38,12 @@ work for you once, they will usually keep working from that network.
 withheld, every call fails. Roughly four out of five connect today, and the
 alternative was nobody calling anyone.
 
-**The fix, and it is a known one:** coturn on the existing DigitalOcean droplet.
-The app already reads `NEXT_PUBLIC_TURN_URL` / `_USERNAME` / `_CREDENTIAL`, so it
-is configuration rather than new code. Blocked on checking which ports are free
-on that box.
+**The fix, and it is a known one:** a relay server running coturn. **The app
+side was finished on 2026-08-20** — it asks the server for a short-lived relay
+credential and uses one the moment there is a relay to use. What is left is
+standing up the server itself: a host with a public address, a handful of ports,
+and about $5 a month of bandwidth. `docs/TURN.md` has the whole runbook and the
+numbers behind that figure.
 
 **Accepted for now**, deliberately, so the app can go in front of real people.
 

@@ -1052,6 +1052,75 @@ const selfSuspend = await fetch(APP + '/api/admin/moderate', {
 check(selfSuspend.status === 400, 'an admin cannot suspend themselves',
   `status=${selfSuspend.status}`);
 
+console.log('\n--- 15. TURN CREDENTIALS ---');
+// A TURN relay carries the media of a call, which means it costs bandwidth for
+// as long as the call lasts. That makes the credential to use it a spending
+// capability, and it is why this endpoint exists at all rather than the app
+// shipping a relay password to every browser in a NEXT_PUBLIC_ variable — the
+// same shape as the key that had to be rotated on 2026-08-19.
+//
+// coturn's `use-auth-secret` mode is what makes short-lived credentials
+// possible without a user database on the relay: the username is
+// `<expiry-unix>:<account-id>` and the password is
+// base64(HMAC-SHA1(shared-secret, username)), so coturn re-derives the password
+// itself and refuses anything past its own expiry.
+const iceAnon = await fetch(APP + '/api/calls/ice');
+check(iceAnon.status === 401, 'the ICE endpoint refuses anyone who is not signed in',
+  `status=${iceAnon.status}`);
+
+// CAROL, NOT BOB. §14 suspends bob, and suspending an account revokes its
+// sessions — so `bobCookie` is deliberately dead by the time this runs, and
+// using it here tests the suspension rather than this endpoint.
+const iceRes = await fetch(APP + '/api/calls/ice', { headers: { cookie: modCookie } });
+const iceJson = await iceRes.json().catch(() => null);
+check(iceRes.status === 200, 'and answers a signed-in caller', `status=${iceRes.status}`);
+check(Array.isArray(iceJson?.iceServers) && iceJson.iceServers.length > 0,
+  'with at least one ICE server, so calls can still connect either way');
+
+// STUN must be there whether or not a relay is. Without it a browser cannot
+// even discover its own public address, and no call connects at all.
+const hasStun = (iceJson?.iceServers || []).some((s) =>
+  [].concat(s.urls || []).some((u) => String(u).startsWith('stun:'))
+);
+check(hasStun, 'STUN is always offered, relay or no relay');
+
+// NO SECRET MAY APPEAR IN THE RESPONSE. The shared secret proves the app is
+// entitled to mint credentials; handing it out would let anyone mint their own.
+const iceBody = JSON.stringify(iceJson || {});
+check(!process.env.TURN_STATIC_AUTH_SECRET || !iceBody.includes(process.env.TURN_STATIC_AUTH_SECRET),
+  'and never the shared secret itself');
+
+const relay = (iceJson?.iceServers || []).find((s) =>
+  [].concat(s.urls || []).some((u) => String(u).startsWith('turn:') || String(u).startsWith('turns:'))
+);
+
+if (!relay) {
+  // The honest state of this project today, and it is a PASS rather than a
+  // skip: STUN-only is the documented fallback, and the assertion that matters
+  // is that a missing relay degrades instead of breaking.
+  check(iceRes.status === 200 && hasStun,
+    'no relay configured, so STUN-only is served rather than an error (FOLLOWUPS §1)');
+} else {
+  const [expiry, accountId] = String(relay.username || '').split(':');
+  check(/^\d+$/.test(expiry) && Number(expiry) * 1000 > Date.now(),
+    'the relay username carries an expiry in the future', relay.username);
+  check(accountId === carolId(),
+    'and names the account it was minted for, so abuse is attributable');
+  check(Number(expiry) * 1000 - Date.now() < 24 * 60 * 60 * 1000,
+    'and expires within a day rather than lasting forever');
+
+  // Recomputed here rather than trusted. If this does not match, coturn will
+  // reject the credential too, and the call fails with no explanation.
+  if (process.env.TURN_STATIC_AUTH_SECRET) {
+    const { createHmac } = await import('node:crypto');
+    const expected = createHmac('sha1', process.env.TURN_STATIC_AUTH_SECRET)
+      .update(relay.username)
+      .digest('base64');
+    check(relay.credential === expected,
+      'and the password is a correct HMAC of it, which is what coturn checks');
+  }
+}
+
 console.log(`\n=========== ${pass} passed, ${fail} failed ===========\n`);
 
 

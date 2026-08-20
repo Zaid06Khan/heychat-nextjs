@@ -54,6 +54,27 @@ npm run push:test -- <username>
   adopted once with `--baseline` naming the files it already has. `--baseline` refuses
   to run without that list, because recording unapplied work as done is silent and
   permanent.
+- **`DATABASE_URL` must use the POOLER, and the password must be percent-encoded.**
+  Three separate things break it, and they mask each other — each one surfaces as
+  a misleading error:
+  - **`db.<ref>.supabase.co` has no A record at all.** It is IPv6-only, and the
+    route to its port 5432 times out from this connection even though general
+    IPv6 egress works. Use the session pooler:
+    `postgresql://postgres.<ref>:<pw>@aws-0-ca-central-1.pooler.supabase.com:5432/postgres`.
+    **Port 5432, not 6543** — 6543 is the transaction pooler and cannot run DDL.
+    Note the username is `postgres.<ref>`, not `postgres`.
+  - **The region is `ca-central-1`.** Verified by elimination: that pooler answers
+    `password authentication failed` (tenant exists) while every other region
+    answers `Tenant or user not found`. That difference is how to find it again.
+  - **A password containing `@`, `%`, `/`, `:` or `#` must be percent-encoded**, or
+    the URL parses wrong and you get `password authentication failed` for a
+    password that is perfectly correct. Square brackets from the dashboard's
+    `[YOUR-PASSWORD]` template must be removed too. To test a password without
+    fighting URL parsing, pass it to `new Client({ password })` directly.
+  - `npm run db:status` passes `"$DATABASE_URL"`, which **cmd.exe does not expand** —
+    migrate.mjs falls back to `process.env.DATABASE_URL`, and nothing loads
+    `.env.local` for it. Export it first:
+    `export DATABASE_URL="$(grep '^DATABASE_URL=' .env.local | cut -d= -f2- | tr -d '\r\n')"`.
 - **`0004_grants.sql` is not optional.** Without it you get
   `42501 permission denied for table accounts` before RLS is even consulted.
 - **The `testbuddy` account and its conversation are deliberate.** Do not clean them up.

@@ -16,7 +16,7 @@ the four DONE sections below each carry gaps that are still open.
 
 | § | Status | What it is | Still open? |
 |---|---|---|---|
-| 1 | PARTIAL | 1:1 audio **and video** calls work; groups do not | Yes — **no TURN relay**, so ~15-20% of networks cannot connect |
+| 1 | PARTIAL | 1:1 audio **and video** calls work; groups do not | Yes — **no TURN relay host**, so ~15-20% of networks cannot connect. App side done 2026-08-20; needs two env vars and a box (`docs/TURN.md`) |
 | 2 | DROPPED | Watch-and-earn | No → `FOLLOWUPS-CLOSED.md` |
 | 3 | DECISION | No end-to-end encryption | Yes — **plan written**, `docs/E2E-ENCRYPTION.md`. Needs three product answers before any code |
 | 4 | CLOSED | Attachments were public by URL | No → `FOLLOWUPS-CLOSED.md` |
@@ -153,13 +153,34 @@ visibility check is doing real work. §7e drives the no-camera path end to end.
 
 ### Still open
 
-- **No TURN relay yet.** Roughly 15–20% of connections cannot go peer-to-peer —
-  symmetric NAT, strict corporate firewalls, some mobile carriers — and need
-  their audio relayed. Without one those calls fail rather than all calls
-  failing, which is why this shipped before the relay existed. `ice.js` reads
-  `NEXT_PUBLIC_TURN_URL` / `_USERNAME` / `_CREDENTIAL`, so turning it on is
-  configuration rather than code. coturn on the existing DigitalOcean droplet is
-  the plan. **This is the one thing between "works for most people" and "works".**
+- **No TURN relay yet — but the app side is done, 2026-08-20.** Roughly 15–20%
+  of connections cannot go peer-to-peer — symmetric NAT, strict corporate
+  firewalls, some mobile carriers — and need their media relayed. Without one
+  those calls fail rather than all calls failing, which is why this shipped
+  before the relay existed. **This is still the one thing between "works for
+  most people" and "works".**
+
+  What is built: `GET /api/calls/ice` mints short-lived coturn credentials,
+  `lib/calls/ice.js` fetches and caches them and falls back to STUN alone if the
+  endpoint cannot be reached, and `hasTurn()` now reports what the server
+  actually said rather than whether three build-time variables were set.
+  **Turning it on is two environment variables** — `TURN_URLS` and
+  `TURN_STATIC_AUTH_SECRET` — and a coturn host. `docs/TURN.md` is the runbook:
+  ports, config file, verification, and what the bandwidth costs.
+
+  **`NEXT_PUBLIC_TURN_URL` / `_USERNAME` / `_CREDENTIAL` are gone.** A fixed
+  relay password in the browser bundle is a licence to spend bandwidth,
+  published to anyone who opens devtools and revocable only by changing it for
+  everyone at once — the same shape as the key rotated on 2026-08-19. The
+  credential is minted per request now, expires in eight hours, and names the
+  account it was issued to so a relay log is attributable.
+
+  **Not verified, and cannot be until a relay exists:** that coturn accepts
+  these credentials in practice, and that media actually flows through it.
+  `e2e-smoke.mjs` §15 recomputes the HMAC the way coturn will, which is as close
+  as this gets without a server. Hosting is undecided — self-hosted coturn on a
+  ~$5 VPS or a per-GB managed provider; the latter would need a different
+  `/api/calls/ice` body, roughly an hour of work.
 - ~~**Ringing only reaches you inside that conversation.**~~ **Fixed
   2026-08-18 with push.** `watchForCalls` is still scoped to the chat on screen
   — listening everywhere would mean one channel per conversation, permanently —
