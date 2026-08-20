@@ -590,6 +590,49 @@ try {
   await seen(A, 'button[aria-label^="Call "]');
   await seen(B, 'textarea');
 
+  console.log('\n--- 7c-i. A MESSAGE APPEARS BEFORE THE SERVER ANSWERS ---');
+  // The bubble used to wait for POST /api/messages to come back. At a desk that
+  // is 200ms; on mobile data it is long enough that the composer clearing with
+  // nothing appearing reads as the message being lost, and people send it again.
+  //
+  // THE REQUEST IS STALLED ON PURPOSE. Without a delay this assertion passes
+  // whether or not the fix exists, because a fast response and an optimistic
+  // render are indistinguishable — which is exactly why the old behaviour
+  // survived this suite.
+  // Only the FIRST send is stalled, and the route is never removed: calling
+  // unroute() while a request is still parked kills the route mid-flight and
+  // Playwright throws "Route is already handled".
+  let releaseSend = () => {};
+  let stalledOnce = false;
+  await A.route('**/api/messages', async (route) => {
+    if (!stalledOnce) {
+      stalledOnce = true;
+      await new Promise((resolve) => {
+        releaseSend = resolve;
+        setTimeout(resolve, 8000);
+      });
+    }
+    await route.continue();
+  });
+
+  await A.fill('textarea', 'optimistic hello');
+  await A.keyboard.press('Enter');
+
+  check(await seen(A, 'text=optimistic hello', 3000),
+    'the message is on screen while the request is still in flight');
+  check(await A.locator('[aria-label="Sending"]').count() > 0,
+    'and is marked as still sending rather than as delivered');
+
+  releaseSend();
+
+  check(await gone(A, '[aria-label="Sending"]', 20000),
+    'the sending marker clears once the server has the row');
+  check(await A.locator('text=optimistic hello').count() === 1,
+    'and the reload that follows does not duplicate it');
+  check(await seen(B, 'text=optimistic hello', 20000),
+    'and it reaches the other person');
+
+
   for (const round of [1, 2]) {
     const ringA = await soundCount(A);
     const ringB = await soundCount(B);
@@ -623,6 +666,47 @@ try {
     await A.locator('button[aria-label="Hang up"]').click();
     check(await gone(B, 'button[aria-label="Hang up"]', 10000),
       `call ${round}: hanging up clears both sides`);
+    await A.waitForTimeout(1500);
+  }
+
+  console.log('\n--- 7c-ii. A CALL LEAVES A TRACE IN THE CONVERSATION ---');
+  // A call used to leave nothing behind: a push notification, and once that was
+  // dismissed the call had never happened as far as the app was concerned.
+  // The record is a `calls` row rather than a message, which is why it needed
+  // no migration — `started_at` is set only once media flows, so a row without
+  // one IS a call that never connected.
+  //
+  // BOTH SIDES, AND WITHOUT RELOADING. Those two words are the whole test: the
+  // first version of this passed a caller-only check after a reload while being
+  // broken three separate ways.
+  //   * the row named only the caller, and `calls_select_participant` (0002) is
+  //     `auth.uid() = any (participant_ids) or initiated_by = auth.uid()` — so
+  //     the person who MISSED the call was the one person who could not read the
+  //     record of it, and CallRecord's "Missed call" wording was unreachable;
+  //   * the thread's empty state was gated on `messages.length` alone, so a
+  //     conversation whose only history was a call rendered "Say hello to start
+  //     the conversation";
+  //   * nothing subscribed to `calls`, and the row is written during teardown —
+  //     after the last message, after the stage has gone — so it stayed
+  //     invisible until the conversation was next opened.
+  check(await seen(A, 'text=/Call ·/', 10000),
+    'the caller sees the finished call in the thread, without reloading');
+  check(await seen(B, 'text=/Call ·/', 10000),
+    'and so does the person who answered it');
+
+  // And the case the record exists for: one nobody picks up.
+  await A.locator('button[aria-label^="Call "]').first().click();
+  const rangUnanswered = await seen(B, 'text=Incoming call', 20000);
+  check(rangUnanswered, 'a call nobody answers still rings');
+  if (rangUnanswered) {
+    await A.waitForTimeout(2000);
+    await A.locator('button[aria-label="Hang up"]').click();
+    await gone(B, 'button[aria-label="Accept call"]', 10000);
+    // The wording follows who placed it — the caller did not miss anything.
+    check(await seen(A, 'text=No answer', 10000),
+      'the caller is told it went unanswered, in the thread rather than nowhere');
+    check(await seen(B, 'text=Missed call', 10000),
+      'and the person who missed it is the one who sees "Missed call"');
     await A.waitForTimeout(1500);
   }
 

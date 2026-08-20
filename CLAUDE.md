@@ -62,11 +62,17 @@ npm run push:test -- <username>
   memory, so restarting the dev server clears them. Any new account a test creates
   must be pushed onto `createdUsers` or it is never deleted; three leaked that way
   the first time §10 was added.
-- **Two suite runs back-to-back can flake.** Not a rate limit — every
-  `POST /api/messages` returns 200 and the UI still misses the message, because
-  `ChatView` has no optimistic append and waits on realtime. Restart the dev server
-  and re-run before believing a send failure. (Signing an existing account into a
-  differently-sized context used to be impossible; since §6 it works fine.)
+- **Two suite runs back-to-back can flake.** Not a rate limit. The send half of
+  this is fixed — `ChatView` appends optimistically since 2026-08-20, so a
+  message no longer waits on realtime to appear for its own sender — but a
+  loaded machine still costs the SENDER'S copy nothing and the RECEIVER'S
+  everything, and the WebRTC assertions in §7d are the slowest thing here.
+  **Re-run before believing a call or delivery failure**, and restart the dev
+  server first. A 7d failure that does not reproduce twice is the machine, not
+  the code: on 2026-08-20 "B cannot see A's video" failed once and then passed
+  three consecutive times, including two back-to-back full runs.
+  (Signing an existing account into a differently-sized context used to be
+  impossible; since §6 it works fine.)
 
 ## The logo
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getIceConfig } from './ice';
 import { startRinging, stopRinging } from '@/lib/sound';
+import { recordCallOutcome } from './records';
 
 /**
  * One-to-one calls, audio or video.
@@ -98,7 +99,38 @@ function send(type, payload = {}) {
  * browser's recording indicator stays on after the call, which reads as the app
  * still listening — and on that suspicion alone people uninstall.
  */
+/**
+ * Leave a record of the call in the conversation.
+ *
+ * Called from cleanup, so every way a call can end runs through it: answered
+ * and hung up, declined, rung out, or failed. Only the side that PLACED the
+ * call writes — otherwise the same call appears twice in one thread, and a
+ * declined call never reached the other side's UI to be recorded anyway.
+ */
+function recordEndedCall() {
+  if (!state.outgoing || !state.conversationId || !state.meId) return;
+  if (state.recorded) return;
+  state.recorded = true;
+
+  recordCallOutcome({
+    conversationId: state.conversationId,
+    initiatedBy: state.meId,
+    // EVERYONE IN THE CONVERSATION, NOT JUST THIS SIDE. `calls_select_participant`
+    // (0002) is `auth.uid() = any (participant_ids) or initiated_by = auth.uid()`,
+    // so a row naming only the caller is a row the other person cannot read —
+    // and the whole point of the record is the missed call THEY did not answer.
+    // Written with only `[meId]` it left CallRecord's "Missed call" wording
+    // unreachable, because the only reader was the one who placed the call.
+    participantIds: state.participantIds?.length
+      ? state.participantIds
+      : [state.meId].filter(Boolean),
+    connectedAt: state.since || null,
+    video: Boolean(state.video),
+  });
+}
+
 function cleanup() {
+  recordEndedCall();
   stopRinging();
   clearTimeout(ringTimer);
   ringTimer = null;
@@ -410,10 +442,29 @@ function ringByPush(conversationId, video) {
 }
 
 /** Start an outgoing call. `video: true` makes it a video call. */
-export async function startCall({ conversationId, meId, peerName, peerAvatar = '', video = false }) {
+export async function startCall({
+  conversationId,
+  meId,
+  peerName,
+  peerAvatar = '',
+  video = false,
+  // Who the record of this call must name. Carried from the caller's screen
+  // because the controller never loads the conversation itself — see
+  // recordEndedCall() for what goes wrong when this is only `[meId]`.
+  participantIds = [],
+}) {
   if (state.status !== 'idle') return;
 
-  publish({ status: 'calling', conversationId, meId, peerName, peerAvatar, outgoing: true, video });
+  publish({
+    status: 'calling',
+    conversationId,
+    meId,
+    peerName,
+    peerAvatar,
+    outgoing: true,
+    video,
+    participantIds,
+  });
 
   let gotVideo = false;
   try {

@@ -26,8 +26,8 @@ the four DONE sections below each carry gaps that are still open.
 | 8 | CLOSED | Base44 shim retired | No — deleted 2026-08-18. Gap: dead `CallOverlay` route |
 | 9 | OPEN | Smaller items | Yes — 5 open. Contact search fixed 2026-08-19; **both credentials rotated 2026-08-19** |
 | 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window |
-| 11 | DONE | Replies, reactions, edit, delete, typing | 0016/0017/0020 applied. Gaps: notification not cleared on delete, read race, no optimistic send |
-| 12 | DONE | Unread counts | Gap: mutes still count (the four-badge double-mount is fixed) |
+| 11 | DONE | Replies, reactions, edit, delete, typing | 0016/0017/0020 applied. Gaps: notification not cleared on delete, read race (**optimistic send done 2026-08-20**) |
+| 12 | DONE | Unread counts | No — **muted conversations stopped counting 2026-08-20**; the four-badge double-mount is fixed |
 | 14 | DONE | Moderation: queue, suspension, audit trail | Gaps: reported content untouched, no appeal path |
 | 13 | DONE | Group management | 0019 applied. Gaps: no audit trail, admin is a single point of failure |
 
@@ -193,10 +193,26 @@ visibility check is doing real work. §7e drives the no-camera path end to end.
   failed intermittently rather than always, and why it would fail far more
   often across real networks. Candidates are kept and replayed.
 
-  **Still missing: there is no missed-call record.** The notification is the
-  only trace, and once it is dismissed the call leaves nothing behind. That
-  needs the `calls` table to hold an outcome — see the last bullet in this
-  section.
+  **Missed-call records exist, 2026-08-20.** A finished call leaves a row in
+  `calls` and a centred line in the thread — "No answer" for the caller,
+  "Missed call" for the person who did not pick up, a duration for one that
+  connected. **No migration was needed**: `started_at` is set only once media
+  flows, so a row with `status = 'ended'` and no `started_at` already means a
+  call that never connected.
+
+  Three things had to be true at once, and each one was wrong first:
+  the row must name **both** people in `participant_ids`, because
+  `calls_select_participant` is `auth.uid() = any (participant_ids) or
+  initiated_by = auth.uid()` and a caller-only row is unreadable by exactly
+  the person who missed the call; the thread's empty state must count calls as
+  content, or a conversation whose only history is a call renders "Say hello to
+  start the conversation"; and `ChatView` must subscribe to `calls`, because the
+  row is written during teardown and nothing else would reload the thread.
+  Covered by `test:browser` §7c-ii, which asserts both sides, without a reload.
+
+  Still not recorded: whether the call was video (the `calls` table has no
+  column for it, and that WOULD need a migration), and who declined versus who
+  rang out.
 - **Escalating an audio call to video mid-call.** The one part of video not
   built. It needs renegotiation with glare handling (both sides offering at
   once); the "perfect negotiation" pattern is the known answer. Today you hang
@@ -212,8 +228,13 @@ visibility check is doing real work. §7e drives the no-camera path end to end.
   LiveKit or Daily remains the sane answer if group calls are ever wanted — and
   note an SFU sees the media, so group calls would NOT inherit the end-to-end
   property 1:1 calls get for free.
-- **The `calls` table still only records that a call happened.** No duration, no
-  outcome, nothing in the thread. Missed-call history would go here.
+- **The `calls` table records the outcome now, but not the kind.** Duration and
+  answered-versus-missed are derived from `started_at` (see above). What is
+  still absent is a column saying the call was video, and any distinction
+  between a call that was declined and one that rang out — both land as
+  "Missed call". Only the side that PLACED the call writes the row, because
+  both sides writing would put one call in the thread twice, and a declined
+  call never reaches the other side's UI to be recorded anyway.
 
 ## 2. Earnings — DROPPED, 2026-08-09
 
@@ -902,9 +923,12 @@ expiry that the five-minute sweep has not collected yet — a badge pointing at
 
 Known and deliberate:
 
-- **Muted conversations still count.** Muting silences the notification; it does
-  not mark anything as read. Whether the badge should respect a mute is a
-  product call nobody has made.
+- **Muted conversations no longer count, 2026-08-20.** That product call is
+  made: a badge is a pull back to something, and a nav that keeps advertising a
+  chat you deliberately silenced is the app arguing with you. Muting still does
+  not mark anything as READ — the per-conversation count is unchanged and shows
+  in the list, so a muted chat with something new is discoverable when you go
+  looking. It just stops asking.
 - **The badge is published through a module-level store** (`src/lib/unread.js`)
   rather than context. The reason was that `ConversationList` and `BottomNav`
   were each mounted twice on `/home` — a debug run counted **four** badges for

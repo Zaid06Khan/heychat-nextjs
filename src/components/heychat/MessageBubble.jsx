@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Image } from '@/components/ui/image';
-import { Check, CheckCheck, Flame, FileText, MoreHorizontal, Reply, Pencil, Trash2, SmilePlus, EyeOff } from 'lucide-react';
+import { Check, CheckCheck, Flame, FileText, MoreHorizontal, Reply, Pencil, Trash2, SmilePlus, EyeOff, Clock, AlertCircle } from 'lucide-react';
 import { useSignedMedia } from '@/lib/media/useSignedMedia';
 import { QUICK_REACTIONS, summariseReactions, getEditHistory } from '@/lib/messages/interactions';
 
@@ -173,6 +173,8 @@ export default function MessageBubble({
     <div
       id={`msg-${message.id}`}
       className={`group flex ${isOwn ? 'justify-end' : 'justify-start'} animate-message-in ${
+        message.pending ? 'opacity-60' : ''
+      } ${
         highlighted ? 'rounded-2xl ring-2 ring-accent ring-offset-2 ring-offset-secondary transition-shadow' : ''
       }`}
     >
@@ -334,7 +336,19 @@ export default function MessageBubble({
               )}
               {message.expiry_at && <Flame className="w-3 h-3 opacity-70" />}
               <span className={`text-[10px] font-bold tracking-wide ${isOwn ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{time}</span>
-              {isOwn && !isDeleted && (isRead ? <CheckCheck className="w-3 h-3" /> : <Check className="w-3 h-3" />)}
+              {/* THREE STATES, NOT TWO. A message that has left the composer but
+                  not reached the server is neither sent nor failed, and showing
+                  it with a delivered tick would be a lie for as long as the
+                  round trip lasts. `pending` and `failed` are set by ChatView's
+                  optimistic send and never exist as columns. */}
+              {isOwn && !isDeleted && message.pending && (
+                <Clock className="w-3 h-3 opacity-70" aria-label="Sending" />
+              )}
+              {isOwn && !isDeleted && message.failed && (
+                <AlertCircle className="w-3 h-3 text-destructive" aria-label="Not sent" />
+              )}
+              {isOwn && !isDeleted && !message.pending && !message.failed &&
+                (isRead ? <CheckCheck className="w-3 h-3" /> : <Check className="w-3 h-3" />)}
             </div>
 
             {/* Prior versions, oldest first, inside the bubble so it is obvious

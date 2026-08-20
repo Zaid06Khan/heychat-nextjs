@@ -236,7 +236,15 @@ export default function ConversationList() {
 
       // Publishes to the nav badge. Muted conversations still count — muting
       // silences the notification, it does not mark anything as read.
-      setUnreadTotal(visible.reduce((sum, c) => sum + c.unread, 0));
+      // MUTED CONVERSATIONS DO NOT COUNT. Muting is a statement about not
+      // wanting to be pulled back to something, and a badge is exactly that
+      // pull — a nav that keeps advertising a chat you deliberately silenced is
+      // the app arguing with you. The per-conversation count still shows in the
+      // list, so a muted chat with something new is discoverable when you go
+      // looking; it just stops asking.
+      setUnreadTotal(
+        visible.reduce((sum, c) => (c.muted ? sum : sum + c.unread), 0)
+      );
     } catch (e) {
       console.error(e);
     } finally {

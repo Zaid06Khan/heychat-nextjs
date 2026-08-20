@@ -64,11 +64,12 @@ encrypted anywhere.**
 
 ---
 
-## A missed call leaves no trace
+## A missed call does not say who hung up first
 
-If someone calls and you do not answer, there is a push notification and nothing
-else. No missed-call entry, no record in the conversation. Dismiss the
-notification and the call never happened as far as the app is concerned.
+A call you miss now leaves a "Missed call" line in the conversation, and one you
+made that nobody answered says "No answer". What it does not tell you is whether
+they declined it or simply never got to the phone — both look the same — and it
+does not say whether it was a video call or an audio one.
 
 ---
 

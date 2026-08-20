@@ -3,6 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getAccount, getAccountsById } from '@/lib/accounts';
 import { getConversation, updateDisappearingTimer } from '@/lib/conversations';
 import { getRecentMessages } from '@/lib/messages/read';
+import { getCallsForConversation } from '@/lib/calls/records';
+import CallRecord from './CallRecord';
 import { getSession, getCurrentAccount } from '@/lib/heychatAuth';
 import { sendMessage } from '@/lib/messages/send';
 import { getMute, muteConversation, unmuteConversation, MUTE_OPTIONS } from '@/lib/notifications/mutes';
@@ -18,7 +20,7 @@ import {
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { hideConversation, getConversationHides } from '@/lib/conversations';
 import { playSentSound } from '@/lib/sound';
-import { startCall, watchForCalls, getCallState } from '@/lib/calls/controller';
+import { startCall, watchForCalls, useCall } from '@/lib/calls/controller';
 import { createTypingChannel } from '@/lib/messages/typing';
 import { markRead } from '@/lib/unread';
 import { ArrowLeft, Shield, Flame, Flag, Bell, BellOff, AlertCircle, Trash2, Phone, Video } from 'lucide-react';
@@ -41,6 +43,7 @@ export default function ChatView() {
   const { conversationId } = useParams();
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [callRecords, setCallRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showTimer, setShowTimer] = useState(false);
   const [showReport, setShowReport] = useState(false);
@@ -65,7 +68,16 @@ export default function ChatView() {
   const messagesEndRef = useRef(null);
   // Reset per conversation, so switching chats also lands at the bottom.
   const firstScrollRef = useRef(true);
+  // tempId -> { message, payload } for anything still in flight or failed.
+  // loadMessages() replaces the array from the database, so without this a
+  // realtime event mid-send would wipe a message that has not landed yet.
+  const pendingRef = useRef(new Map());
   const session = getSession();
+  // SUBSCRIBED, NOT SAMPLED. These buttons used to read getCallState() during
+  // render, which only reflects reality if something else re-renders ChatView
+  // at the right moment — so after a call ended they could stay disabled until
+  // an unrelated update happened to come along.
+  const call = useCall();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -101,10 +113,17 @@ export default function ChatView() {
     let timer = null;
     let wantMessages = false;
     let wantReactions = false;
+    let wantCalls = false;
 
     const flush = () => {
       timer = null;
       if (cancelled) return;
+      if (wantCalls) {
+        wantCalls = false;
+        // loadMessages() refetches these anyway, so a burst that touched both
+        // does not ask for the same rows twice.
+        if (!wantMessages) loadCalls();
+      }
       if (wantMessages) {
         wantMessages = false;
         loadMessages();
@@ -149,6 +168,20 @@ export default function ChatView() {
             filter: `conversation_id=eq.${conversationId}`,
           },
           () => { wantMessages = true; schedule(); }
+        )
+        // Filtered server-side, like messages. `calls` is in the realtime
+        // publication (0002) and RLS is evaluated per subscriber, so this only
+        // fires for a row this account is named on — which is why the record
+        // has to name both people rather than only whoever placed the call.
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'calls',
+            filter: `conversation_id=eq.${conversationId}`,
+          },
+          () => { wantCalls = true; schedule(); }
         )
         .on(
           'postgres_changes',
@@ -221,6 +254,18 @@ export default function ChatView() {
     return () => { cancelled = true; dispose(); };
   }, [conversationId, session?.id, otherUser?.id, conversation?.type]);
 
+  /**
+   * Calls in this thread, which are the only trace an unanswered one leaves.
+   *
+   * SEPARATE FROM loadMessages, and separately subscribed, because a call
+   * ending is not a message event. The record is written during teardown —
+   * after the last message, after the stage has gone — so nothing else was
+   * ever going to reload the thread, and the record sat invisible until the
+   * next time the conversation happened to be opened.
+   */
+  const loadCalls = () =>
+    getCallsForConversation(conversationId, 50).then(setCallRecords).catch(() => {});
+
   const loadConversation = async () => {
     try {
       const conv = await getConversation(conversationId);
@@ -251,6 +296,7 @@ export default function ChatView() {
       // hit it because no test conversation had ever been that long; a 220-
       // message fixture built to test reply quotes is what surfaced it.
       const newest = await getRecentMessages(conversationId, 200);
+      loadCalls();
       const msgs = [...newest].reverse();
       // Still filtered here, but no longer deleted here. The sweep runs every
       // five minutes (0010), so a row can outlive its expiry by a few minutes —
@@ -273,7 +319,10 @@ export default function ChatView() {
       const active = hidden.size
         ? unexpired.filter((m) => !hidden.has(m.id))
         : unexpired;
-      setMessages(active);
+      // Anything still in flight goes back on the end. It is not in the
+      // database yet by definition, so a reload would otherwise erase it.
+      const stillPending = [...pendingRef.current.values()].map((p) => p.message);
+      setMessages(stillPending.length ? [...active, ...stillPending] : active);
       messageIdsRef.current = new Set(active.map((m) => m.id));
 
       // Originals quoted by a reply that are not themselves in this batch —
@@ -345,42 +394,92 @@ export default function ChatView() {
    * limiting on /api/messages makes this a real outcome rather than a
    * theoretical one.
    */
-  const deliver = async (payload) => {
+  /**
+   * Send it, and show it before the server has agreed.
+   *
+   * WHAT THIS REPLACES. The bubble used to appear when POST /api/messages came
+   * back — which is already better than waiting for realtime, but it still
+   * means the thread sits unchanged for a whole round trip. At a desk that is
+   * 200ms and invisible. On a phone on mobile data it is long enough that the
+   * composer clearing with nothing appearing reads as the message being lost,
+   * and people send it again.
+   *
+   * A pending bubble is rendered immediately under a temporary id, then
+   * RECONCILED: on success the real row replaces it, on failure it is marked
+   * failed and offers a retry in place rather than vanishing into a bar at the
+   * bottom of the screen.
+   *
+   * THE HARD PART IS loadMessages(), which replaces the array wholesale from
+   * the database. Anything realtime triggers mid-flight — the other person
+   * typing, a reaction, their own message arriving — would wipe a message that
+   * has not landed yet. `pendingRef` is the copy that survives that: every
+   * reload re-appends whatever is still in flight.
+   */
+  const deliver = async (payload, existingTempId = null) => {
     setSendError(null);
+
+    const tempId = existingTempId || `pending:${crypto.randomUUID()}`;
+    const optimistic = {
+      id: tempId,
+      conversation_id: conversationId,
+      sender_id: session.id,
+      message_type: payload.messageType,
+      content: payload.content || '',
+      media_url: payload.mediaUrl || '',
+      reply_to_id: payload.replyToId || null,
+      read_by: [session.id],
+      created_date: new Date().toISOString(),
+      // Read by MessageBubble. Not columns — they never reach the database.
+      pending: true,
+      failed: false,
+    };
+
+    pendingRef.current.set(tempId, { message: optimistic, payload });
+    setMessages((current) => {
+      const without = current.filter((m) => m.id !== tempId);
+      return [...without, optimistic];
+    });
+
     try {
       const sent = await sendMessage(payload);
 
-      // Show it immediately, rather than waiting for realtime to tell us about
-      // our own message.
-      //
-      // The row is already written and the response carries it, so there is no
-      // server opinion left to wait for — yet the thread used to render nothing
-      // until the subscription fired and triggered a reload. That made the
-      // composer depend on a websocket for something it already had, and it
-      // failed visibly: two browser-suite assertions once went red on a run
-      // where every POST /api/messages returned 200 and the message simply
-      // never appeared.
-      //
-      // Appending is safe against the reload that follows. `loadMessages()`
-      // replaces the array wholesale from the database, which by then contains
-      // this row — so the optimistic copy is replaced by an identical one
-      // rather than duplicated. The id guard covers the race the other way,
-      // where realtime wins and reloads before this line runs.
+      pendingRef.current.delete(tempId);
+
+      // Swap the placeholder for the stored row. The id guard covers the race
+      // where realtime already reloaded and brought the real message in.
       if (sent?.id) {
-        setMessages((current) =>
-          current.some((m) => m.id === sent.id) ? current : [...current, sent]
-        );
+        setMessages((current) => {
+          const withoutTemp = current.filter((m) => m.id !== tempId);
+          return withoutTemp.some((m) => m.id === sent.id)
+            ? withoutTemp
+            : [...withoutTemp, sent];
+        });
         messageIdsRef.current.add(sent.id);
+      } else {
+        setMessages((current) => current.filter((m) => m.id !== tempId));
       }
 
       // After the server accepts it, not before — a sound for a message that
-      // then fails to send is a lie, and failures are visible enough now
-      // (rate limits) to matter.
+      // then fails to send is a lie.
       playSentSound();
     } catch (e) {
       console.error(e);
-      setSendError({ message: e.message || 'Could not send that message.', payload });
+
+      // Kept in place, marked failed. The message stays where the user put it
+      // instead of disappearing and reappearing somewhere else on retry.
+      const failed = { ...optimistic, pending: false, failed: true };
+      pendingRef.current.set(tempId, { message: failed, payload });
+      setMessages((current) => current.map((m) => (m.id === tempId ? failed : m)));
+      setSendError({ message: e.message || 'Could not send that message.', payload, tempId });
     }
+  };
+
+  /** Try a failed message again, in the place it already occupies. */
+  const retrySend = (tempId, payload) => {
+    setMessages((current) =>
+      current.map((m) => (m.id === tempId ? { ...m, pending: true, failed: false } : m))
+    );
+    deliver(payload, tempId);
   };
 
   const handleReact = async (message, emoji) => {
@@ -527,6 +626,41 @@ export default function ChatView() {
   const avatar = conversation.type === 'group' ? conversation.cover_image : otherUser?.avatar;
   const online = conversation.type === 'direct' && otherUser?.is_online;
 
+  /**
+   * One message row. Lifted out of the JSX so the timeline can interleave
+   * messages and call records without duplicating any of this.
+   */
+  const renderMessage = (msg, i) => {
+            const isOwn = msg.sender_id === session.id;
+            const prevMsg = messages[i - 1];
+            const showSender = conversation.type === 'group' && !isOwn && (!prevMsg || prevMsg.sender_id !== msg.sender_id);
+            let senderName = '';
+            if (showSender) {
+              const member = members.find((m) => m.id === msg.sender_id);
+              senderName = member?.display_name || member?.username || 'Unknown';
+            }
+            return (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                isOwn={isOwn}
+                senderName={senderName}
+                showSender={showSender}
+                replyTo={quoteFor(msg)}
+                reactions={reactions.get(msg.id) || []}
+                myAccountId={session.id}
+                onReply={setReplyTo}
+                onEdit={setEditing}
+                onDelete={handleDelete}
+                onHide={handleHide}
+                onReact={handleReact}
+                onJumpTo={jumpToMessage}
+                highlighted={highlightId === msg.id}
+              />
+            );
+  };
+
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Bar spans the pane; its contents track the thread's column so the
@@ -577,9 +711,10 @@ export default function ChatView() {
                   meId: session.id,
                   peerName: otherUser?.display_name || otherUser?.username || 'Someone',
                   peerAvatar: otherUser?.avatar || '',
+                  participantIds: conversation?.participant_ids || [],
                 })
               }
-              disabled={getCallState().status !== 'idle'}
+              disabled={call.status !== 'idle'}
               aria-label={`Call ${otherUser?.display_name || otherUser?.username || 'them'}`}
               className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition disabled:opacity-40"
             >
@@ -592,10 +727,11 @@ export default function ChatView() {
                   meId: session.id,
                   peerName: otherUser?.display_name || otherUser?.username || 'Someone',
                   peerAvatar: otherUser?.avatar || '',
+                  participantIds: conversation?.participant_ids || [],
                   video: true,
                 })
               }
-              disabled={getCallState().status !== 'idle'}
+              disabled={call.status !== 'idle'}
               aria-label={`Video call ${otherUser?.display_name || otherUser?.username || 'them'}`}
               className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition disabled:opacity-40"
             >
@@ -691,7 +827,11 @@ export default function ChatView() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 bg-secondary">
-        {messages.length === 0 ? (
+        {/* CALLS COUNT AS CONTENT. Gating this on `messages.length` alone made a
+            conversation whose only history is a call render as empty — so the
+            first thing a missed call showed you was "Say hello to start the
+            conversation", which is the exact opposite of the record existing. */}
+        {messages.length === 0 && callRecords.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Shield className="w-12 h-12 text-muted-foreground opacity-30 mb-3" />
             <p className="text-sm text-muted-foreground">Only people in this chat can see these messages</p>
@@ -699,35 +839,26 @@ export default function ChatView() {
           </div>
         ) : (
           <div className="max-w-3xl mx-auto w-full space-y-2">
-          {messages.map((msg, i) => {
-            const isOwn = msg.sender_id === session.id;
-            const prevMsg = messages[i - 1];
-            const showSender = conversation.type === 'group' && !isOwn && (!prevMsg || prevMsg.sender_id !== msg.sender_id);
-            let senderName = '';
-            if (showSender) {
-              const member = members.find((m) => m.id === msg.sender_id);
-              senderName = member?.display_name || member?.username || 'Unknown';
-            }
-            return (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                isOwn={isOwn}
-                senderName={senderName}
-                showSender={showSender}
-                replyTo={quoteFor(msg)}
-                reactions={reactions.get(msg.id) || []}
-                myAccountId={session.id}
-                onReply={setReplyTo}
-                onEdit={setEditing}
-                onDelete={handleDelete}
-                onHide={handleHide}
-                onReact={handleReact}
-                onJumpTo={jumpToMessage}
-                highlighted={highlightId === msg.id}
-              />
-            );
-          })}
+          {/* MERGED FOR RENDER ONLY. Calls live in their own table and are
+              woven in by timestamp here rather than being turned into messages
+              — a call is not something either person said, and making it a
+              message row would have needed a migration and inherited replies,
+              reactions and editing that mean nothing for one. */}
+          {[...messages.map((m, i) => ({ kind: 'message', at: m.created_date || m.sent_at, m, i })),
+            ...callRecords.map((c) => ({ kind: 'call', at: c.created_date, c }))]
+            .sort((a, b) => new Date(a.at) - new Date(b.at))
+            .map((entry) =>
+              entry.kind === 'call' ? (
+                <CallRecord
+                  key={`call:${entry.c.id}`}
+                  call={entry.c}
+                  isOwn={entry.c.initiated_by === session.id}
+                />
+              ) : (
+                renderMessage(entry.m, entry.i)
+              )
+            )}
+
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -763,7 +894,11 @@ export default function ChatView() {
             {sendError.payload ? (
               <button
                 type="button"
-                onClick={() => deliver(sendError.payload)}
+                onClick={() =>
+                  sendError.tempId
+                    ? retrySend(sendError.tempId, sendError.payload)
+                    : deliver(sendError.payload)
+                }
                 className="shrink-0 font-medium underline underline-offset-2"
               >
                 Retry
