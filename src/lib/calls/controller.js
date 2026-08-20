@@ -153,6 +153,7 @@ function backToIdle() {
           conversationId: state.conversationId,
           meId: state.meId,
           peerName: state.peerName,
+          peerAvatar: state.peerAvatar,
         }
       : IDLE
   );
@@ -249,11 +250,20 @@ function newPeerConnection() {
   peer.onconnectionstatechange = () => {
     if (!pc) return;
     if (peer.connectionState === 'connected') {
-      publish({ ...state, status: 'connected', since: Date.now() });
+      // `since` IS SET ONCE. connectionState reaches 'connected' again after
+      // any ICE recovery — a phone moving between wifi and cellular does it
+      // routinely — and re-stamping it there restarted the duration from
+      // 00:00 mid-conversation.
+      publish({
+        ...state,
+        status: 'connected',
+        since: state.since || Date.now(),
+      });
       // The opening statement of camera state. Whoever answered may have no
       // camera at all, and the other side has no way to know that from the SDP
       // alone in time to draw the first frame.
       send('camera', { on: Boolean(state.cameraOn) });
+      send('mute', { muted: Boolean(state.muted) });
     }
     // `failed` is terminal — usually no route without a relay. `disconnected`
     // is often transient and recovers, so it is deliberately not treated as an
@@ -400,10 +410,10 @@ function ringByPush(conversationId, video) {
 }
 
 /** Start an outgoing call. `video: true` makes it a video call. */
-export async function startCall({ conversationId, meId, peerName, video = false }) {
+export async function startCall({ conversationId, meId, peerName, peerAvatar = '', video = false }) {
   if (state.status !== 'idle') return;
 
-  publish({ status: 'calling', conversationId, meId, peerName, outgoing: true, video });
+  publish({ status: 'calling', conversationId, meId, peerName, peerAvatar, outgoing: true, video });
 
   let gotVideo = false;
   try {
@@ -543,6 +553,10 @@ export function toggleMute() {
   const track = localStream.getAudioTracks()[0];
   if (!track) return;
   track.enabled = !track.enabled;
+  // SAY SO. A muted mic is indistinguishable from a quiet room or a broken
+  // connection at the other end — people say "hello? are you there?" at each
+  // other for a while before working it out.
+  send('mute', { muted: !track.enabled });
   publish({ ...state, muted: !track.enabled });
 }
 
@@ -653,6 +667,7 @@ async function onSignal(payload, meId) {
         conversationId: state.conversationId,
         meId,
         peerName: state.peerName,
+        peerAvatar: state.peerAvatar,
         offer: payload.sdp,
         outgoing: false,
         video: Boolean(payload.video),
@@ -694,6 +709,11 @@ async function onSignal(payload, meId) {
 
     case 'camera': {
       publish({ ...state, peerCameraOn: Boolean(payload.on) });
+      break;
+    }
+
+    case 'mute': {
+      publish({ ...state, peerMuted: Boolean(payload.muted) });
       break;
     }
 
@@ -757,7 +777,7 @@ async function onSignal(payload, meId) {
  * conversation open permanently, which is a real cost, so this is scoped for
  * now and noted in FOLLOWUPS.
  */
-export async function watchForCalls({ conversationId, meId, peerName }) {
+export async function watchForCalls({ conversationId, meId, peerName, peerAvatar = '' }) {
   if (state.status !== 'idle') return () => {};
 
   /**
@@ -777,7 +797,7 @@ export async function watchForCalls({ conversationId, meId, peerName }) {
    */
   const myToken = ++watchToken;
 
-  publish({ status: 'idle', conversationId, meId, peerName });
+  publish({ status: 'idle', conversationId, meId, peerName, peerAvatar });
   watching = true;
   await openChannel(conversationId, meId);
 

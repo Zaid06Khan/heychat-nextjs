@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Phone, PhoneOff, Mic, MicOff, AlertTriangle, Video } from 'lucide-react';
+import Avatar from './Avatar';
+import { Phone, PhoneOff, Mic, MicOff, AlertTriangle, Video, Maximize2 } from 'lucide-react';
 import { useCall, acceptCall, declineCall, endCall, toggleMute } from '@/lib/calls/controller';
 import { hasTurn } from '@/lib/calls/ice';
 import VideoStage from './VideoStage';
@@ -38,6 +39,13 @@ function elapsed(since) {
 export default function CallBar() {
   const call = useCall();
   const [, tick] = useState(0);
+  // Minimised means "show me the bar, not the whole screen". Reset whenever a
+  // call ends so the next one opens full-screen as expected.
+  const [minimised, setMinimised] = useState(false);
+
+  useEffect(() => {
+    if (call.status === 'idle' || call.status === 'error') setMinimised(false);
+  }, [call.status]);
 
   // One timer, only while connected, only to redraw the duration.
   useEffect(() => {
@@ -50,9 +58,12 @@ export default function CallBar() {
 
   const who = call.peerName || 'Someone';
 
-  // Everything past ringing, on a video call, belongs to the stage.
-  if (call.video && ['calling', 'connecting', 'connected'].includes(call.status)) {
-    return <VideoStage call={call} />;
+  // Everything past ringing, on a video call, belongs to the stage — unless it
+  // has been pushed aside so the chat underneath can be used. YOU COULD NOT
+  // TEXT DURING A CALL before this: the stage is fixed inset-0 and there was
+  // no way back to the conversation short of hanging up.
+  if (call.video && !minimised && ['calling', 'connecting', 'connected'].includes(call.status)) {
+    return <VideoStage call={call} onMinimise={() => setMinimised(true)} />;
   }
 
   if (call.status === 'error') {
@@ -82,9 +93,9 @@ export default function CallBar() {
     return (
       <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] w-[min(26rem,calc(100vw-1.5rem))]">
         <div className="flex items-center gap-3 bg-card border-2 border-foreground rounded-2xl shadow-pop px-4 py-3">
-          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent border-2 border-foreground">
-            <Phone className="w-4 h-4 text-accent-foreground" />
-            <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-60 animate-ping" />
+          <span className="relative shrink-0">
+            <Avatar src={call.peerAvatar} name={who} size={36} />
+            <span className="absolute inset-0 rounded-full bg-accent opacity-30 animate-ping" />
           </span>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground truncate">{who}</p>
@@ -122,11 +133,25 @@ export default function CallBar() {
   return (
     <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] w-[min(26rem,calc(100vw-1.5rem))]">
       <div className="flex items-center gap-3 bg-card border-2 border-foreground rounded-2xl shadow-pop px-4 py-3">
-        <Phone className="w-4 h-4 text-foreground shrink-0" />
+        <Avatar src={call.peerAvatar} name={who} size={36} />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-foreground truncate">{who}</p>
-          <p className="text-xs text-muted-foreground tabular-nums">{label}</p>
+          <p className="text-xs text-muted-foreground tabular-nums flex items-center gap-1.5">
+            {label}
+            {call.peerMuted && (
+              <span className="flex items-center gap-1"><MicOff className="w-3 h-3" /> muted</span>
+            )}
+          </p>
         </div>
+        {call.video && minimised && (
+          <button
+            onClick={() => setMinimised(false)}
+            aria-label="Back to the video"
+            className="w-9 h-9 rounded-full bg-secondary text-foreground border-2 border-foreground flex items-center justify-center shrink-0"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+        )}
         {call.status === 'connected' && (
           <button
             onClick={toggleMute}

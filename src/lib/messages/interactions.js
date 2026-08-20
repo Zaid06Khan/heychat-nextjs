@@ -45,6 +45,18 @@ export async function getReactions(messageIds = []) {
  *
  * @param {boolean} alreadyReacted
  */
+/**
+ * React to a message, or change your reaction, or take it back.
+ *
+ * ONE REACTION PER PERSON PER MESSAGE. Picking a second emoji REPLACES the
+ * first rather than adding to it — before this, one person could stack every
+ * emoji in the picker onto a single message, which is not what a reaction is
+ * and made the summary row meaningless. Tapping the one you already chose
+ * removes it, which is the only way to have none.
+ *
+ * The delete-then-insert is not a transaction, and does not need to be: the
+ * worst interleaving loses a reaction, and the fix is to tap again.
+ */
 export async function toggleReaction(messageId, accountId, emoji, alreadyReacted) {
   const supabase = getSupabaseBrowserClient();
 
@@ -58,6 +70,13 @@ export async function toggleReaction(messageId, accountId, emoji, alreadyReacted
     if (error) throw new Error(error.message);
     return;
   }
+
+  // Whatever they had before, on this message, goes first.
+  await supabase
+    .from('message_reactions')
+    .delete()
+    .eq('message_id', messageId)
+    .eq('account_id', accountId);
 
   const { error } = await supabase
     .from('message_reactions')

@@ -7,7 +7,7 @@ import ContactSearch from '@/components/heychat/ContactSearch';
 import GroupCreateDialog from '@/components/heychat/GroupCreateDialog';
 import DiscoverSuggestions from '@/components/heychat/DiscoverSuggestions';
 import { myGroupInvites, respondToInvite } from '@/lib/groups';
-import { removeContact, getOrCreateDirectConversation, createConversation } from '@/lib/conversations';
+import { removeContact, getOrCreateDirectConversation } from '@/lib/conversations';
 import { getAccountsById } from '@/lib/accounts';
 import {
   getContactIds,
@@ -77,11 +77,13 @@ export default function Contacts() {
 
   const acceptRequest = async (req) => {
     await setRequestStatus(req.id, 'accepted');
-    await createConversation({
-      type: 'direct',
-      participant_ids: [session.id, req.from_account_id],
-      disappearing_timer: 0,
-    });
+    // GET-OR-CREATE, NOT CREATE. This used to insert unconditionally, so
+    // accept -> unfriend -> ask again -> accept left TWO direct conversations
+    // between the same two people. Both showed in the list with the same name
+    // and each held half the history, which reads as messages appearing twice.
+    // Unfriending deliberately does not delete the conversation, so the old one
+    // is always still there to be found.
+    await getOrCreateDirectConversation(session.id, req.from_account_id);
     loadData();
   };
 

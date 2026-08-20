@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { PhoneOff, Mic, MicOff, Video, VideoOff, SwitchCamera } from 'lucide-react';
+import { PhoneOff, Mic, MicOff, Video, VideoOff, SwitchCamera, ChevronDown, MessageSquare } from 'lucide-react';
+import Avatar from './Avatar';
 import {
   endCall,
   toggleMute,
@@ -49,7 +50,7 @@ function useStream(ref, stream) {
   }, [ref, stream]);
 }
 
-export default function VideoStage({ call }) {
+export default function VideoStage({ call, onMinimise }) {
   const remoteRef = useRef(null);
   const localRef = useRef(null);
   const [, tick] = useState(0);
@@ -106,11 +107,9 @@ export default function VideoStage({ call }) {
 
         {!remoteVideoLive && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-            <span className="w-20 h-20 rounded-full bg-background/10 border-2 border-background/30 flex items-center justify-center">
-              <span className="text-3xl font-display font-extrabold text-background">
-                {who.charAt(0).toUpperCase()}
-              </span>
-            </span>
+            {/* Their actual photo, not an initial. The call screen was the one
+                place in the app that did not know what somebody looked like. */}
+            <Avatar src={call.peerAvatar} name={who} size={88} />
             <p className="text-background font-bold">{who}</p>
             <p className="text-background/60 text-sm tabular-nums">
               {call.status === 'connected' ? 'Camera off' : label}
@@ -130,10 +129,35 @@ export default function VideoStage({ call }) {
           </div>
         )}
 
-        {/* Name and duration, over the video. */}
-        <div className="absolute top-0 inset-x-0 p-4 bg-gradient-to-b from-foreground/70 to-transparent">
-          <p className="text-background font-bold truncate">{who}</p>
-          <p className="text-background/70 text-xs tabular-nums">{label}</p>
+        {/* Name, duration, and a way out that is not hanging up. */}
+        <div className="absolute top-0 inset-x-0 p-4 bg-gradient-to-b from-foreground/70 to-transparent flex items-start gap-3">
+          <button
+            onClick={onMinimise}
+            aria-label="Back to the chat"
+            className="shrink-0 w-9 h-9 rounded-full bg-background/20 text-background flex items-center justify-center"
+          >
+            <ChevronDown className="w-5 h-5" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="text-background font-bold truncate">{who}</p>
+            <p className="text-background/70 text-xs tabular-nums flex items-center gap-1.5">
+              {label}
+              {/* Their mic, not yours. Without this a muted person is
+                  indistinguishable from a broken connection. */}
+              {call.peerMuted && (
+                <span className="flex items-center gap-1 text-background/90">
+                  <MicOff className="w-3 h-3" /> muted
+                </span>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={onMinimise}
+            aria-label="Send a message during the call"
+            className="shrink-0 w-9 h-9 rounded-full bg-background/20 text-background flex items-center justify-center"
+          >
+            <MessageSquare className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Yours, picture-in-picture. Mirrored, because a preview that is not

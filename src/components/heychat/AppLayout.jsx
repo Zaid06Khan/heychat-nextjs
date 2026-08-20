@@ -139,7 +139,15 @@ export default function AppLayout() {
   const onHome = location.pathname === '/home';
 
   return (
-    <div className="flex flex-col md:flex-row h-screen h-[100dvh] bg-background overflow-hidden">
+    <div
+      className="flex flex-col md:flex-row h-screen h-[100dvh] bg-background overflow-hidden"
+      // THE STATUS BAR SITS HERE IN A NATIVE SHELL. `viewport-fit=cover` lets
+      // the app paint the full screen, so on a phone the header was tucked
+      // under the clock. Padding rather than margin, and box-sizing is
+      // border-box, so the height stays exactly 100dvh instead of overflowing
+      // by the inset.
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+    >
       {/* Above the layout, not inside a screen: a call has to outlive the page
           it started on, so hanging up still works after navigating away. */}
       <CallBar />

@@ -63,8 +63,14 @@ export default function ChatView() {
   const [otherUser, setOtherUser] = useState(null);
   const [members, setMembers] = useState([]);
   const messagesEndRef = useRef(null);
+  // Reset per conversation, so switching chats also lands at the bottom.
+  const firstScrollRef = useRef(true);
   const session = getSession();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    firstScrollRef.current = true;
+  }, [conversationId]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -177,7 +183,14 @@ export default function ChatView() {
   }, [conversationId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // INSTANT THE FIRST TIME, SMOOTH AFTER. Opening a thread used to animate
+    // all the way down from the top, which on a long conversation looks exactly
+    // like the chat opening at the beginning and making you scroll.
+    messagesEndRef.current?.scrollIntoView({
+      behavior: firstScrollRef.current ? 'auto' : 'smooth',
+      block: 'end',
+    });
+    firstScrollRef.current = false;
   }, [messages]);
 
   /**
@@ -199,6 +212,7 @@ export default function ChatView() {
         conversationId,
         meId: session.id,
         peerName: otherUser?.display_name || otherUser?.username || 'Someone',
+        peerAvatar: otherUser?.avatar || '',
       });
       if (cancelled) stop();
       else dispose = stop;
@@ -562,6 +576,7 @@ export default function ChatView() {
                   conversationId,
                   meId: session.id,
                   peerName: otherUser?.display_name || otherUser?.username || 'Someone',
+                  peerAvatar: otherUser?.avatar || '',
                 })
               }
               disabled={getCallState().status !== 'idle'}
@@ -576,6 +591,7 @@ export default function ChatView() {
                   conversationId,
                   meId: session.id,
                   peerName: otherUser?.display_name || otherUser?.username || 'Someone',
+                  peerAvatar: otherUser?.avatar || '',
                   video: true,
                 })
               }
