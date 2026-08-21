@@ -38,14 +38,18 @@ work for you once, they will usually keep working from that network.
 withheld, every call fails. Roughly four out of five connect today, and the
 alternative was nobody calling anyone.
 
-**The fix, and it is a known one:** a relay. **The app side was finished on
-2026-08-20** — it asks the server for a short-lived relay credential and uses
-one the moment there is a relay to use. What is left is creating the account:
-Cloudflare's relay service is free at this app's size, and turning it on is two
-settings rather than a server to run. `docs/TURN.md` has the details and the
-self-hosted alternative.
+**The fix is now in place for development, 2026-08-21.** A relay — Cloudflare's,
+free at this app's size — is configured and confirmed working: it accepts the
+app's credentials and reserves an address to forward calls through.
 
-**Accepted for now**, deliberately, so the app can go in front of real people.
+**It is not live for anyone yet.** The deployed app does not have the setting,
+so the numbers above still describe what people using it would see. That is one
+configuration change away.
+
+**Still genuinely unknown:** whether a relayed call carries sound and picture
+properly end to end. Confirming that needs two people on networks that cannot
+reach each other directly — a phone on mobile data with wifi off is the test —
+and until someone does it, this section stays as written.
 
 ---
 

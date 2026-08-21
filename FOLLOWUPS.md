@@ -187,11 +187,17 @@ visibility check is doing real work. §7e drives the no-camera path end to end.
   Always Free compute when CPU and network both sit under 20% for seven days,
   which is exactly the profile of a relay at this scale.
 
-  **Not verified, and cannot be until a relay exists:** that coturn accepts an
-  HMAC credential in practice, and that either relay actually carries media.
-  §15 recomputes the HMAC the way coturn will and branches on `provider` so it
-  stays meaningful under either backend, but with neither configured it exercises
-  the STUN-only path only.
+  **Live in development since 2026-08-21.** Both variables are in `.env.local`,
+  §15 exercises the Cloudflare branch (`provider=cloudflare`), and
+  `npm run turn:check` gathers real ICE candidates with
+  `iceTransportPolicy: 'relay'` — twelve of them, no errors — which proves the
+  relay authenticates the credential and allocates an address. **Production
+  still needs the same two variables in Vercel.**
+
+  **What remains unproven:** that media actually FLOWS through the relay. That
+  needs two people whose networks cannot reach each other directly, which no
+  test here can arrange — see the phone-on-mobile-data check in `docs/TURN.md`.
+  The coturn path is also still only verified by recomputing its HMAC.
 - ~~**Ringing only reaches you inside that conversation.**~~ **Fixed
   2026-08-18 with push.** `watchForCalls` is still scoped to the chat on screen
   — listening everywhere would mean one channel per conversation, permanently —

@@ -32,13 +32,14 @@ The three that shape most decisions:
 npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
-npm run test:e2e -- http://localhost:3000       # 138 assertions, backend boundaries
-npm run test:browser -- http://localhost:3000   # 123 assertions, real UI, 3 contexts
+npm run test:e2e -- http://localhost:3000       # 148 assertions, backend boundaries
+npm run test:browser -- http://localhost:3000   # 136 assertions, real UI, 3 contexts
 npm run db:plan        # migrations in order — needs no database
-npm run db:status      # what is applied, what is pending
+npm run db:status      # what is applied, what is pending (export DATABASE_URL first)
 npm run push:keys      # print VAPID env lines
 npm run admin:grant -- <username>   # the only way to grant moderator access
 npm run push:test -- <username>
+npm run turn:check     # does the TURN relay authenticate and allocate?
 ```
 
 ## Gotchas that each cost an hour once

@@ -1,8 +1,13 @@
 # The TURN relay
 
-**Status: not deployed.** The app works without one and says so honestly when a
-call fails. This is the runbook for standing one up, and the numbers you need to
-decide whether to.
+**Status: configured in development, 2026-08-21. Not yet in production.**
+`CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN` are set in
+`.env.local`; the same two variables still need adding in Vercel before
+deployed calls get a relay. **`npm run turn:check` passes** — the relay
+authenticates and allocates, verified by gathering real ICE candidates rather
+than by inspecting a credential.
+
+The app works without a relay too, and says so honestly when a call fails.
 
 Everything on the app side is already built: `GET /api/calls/ice` mints
 short-lived credentials, `src/lib/calls/ice.js` fetches and caches them, and
@@ -91,11 +96,27 @@ line that separates those two.
 `scripts/e2e-smoke.mjs` §15 asserts the same thing on every run, and branches on
 `provider` so it stays meaningful under either backend.
 
-**2. Does a real call actually use it?** Harder, and worth doing once. Put one
-side on mobile data with wifi off, call, and check `chrome://webrtc-internals`
-on the other side for a selected candidate pair whose remote candidate type is
-`relay`. A relay that is configured but never selected is the normal case — most
-calls do not need it.
+**2. Does the relay authenticate and allocate?**
+
+```bash
+npm run turn:check
+```
+
+`scripts/relay-check.mjs` mints a credential, opens a real `RTCPeerConnection`
+with `iceTransportPolicy: 'relay'` — which refuses to use anything but the relay
+— and gathers. A candidate of type `relay` can only appear if the relay accepted
+the credential and reserved an address to forward through. **`host` and `srflx`
+candidates prove nothing**; you get those with no relay at all, which is exactly
+why the policy is pinned.
+
+Zero candidates means the credential was rejected or the relay is unreachable;
+the script prints any `onicecandidateerror` it saw, which names which.
+
+**3. Does a real call actually use it?** The last mile, and it needs two
+networks. Put one side on mobile data with wifi off, call, and check
+`chrome://webrtc-internals` on the other side for a selected candidate pair
+whose remote candidate type is `relay`. A relay that is configured but never
+selected is the normal case — most calls do not need it, which is the point.
 
 ---
 
@@ -340,6 +361,12 @@ rule together, or calls start failing to allocate once you are busy.
 - **Nothing revokes a Cloudflare credential.** They expose
   `/credentials/<username>/revoke`, and the obvious use is a suspended account,
   but suspension does not call it — the credential simply expires on its own.
-- **Neither path is verified against a live relay.** §15 checks the format and
-  the shape; that coturn accepts an HMAC credential, or that Cloudflare's relay
-  carries media, needs a real relay and real calls.
+- **The coturn path is still unverified against a live relay.** That an HMAC
+  credential is accepted has only ever been checked by recomputing it the way
+  coturn would. The Cloudflare path is verified as far as allocation
+  (`npm run turn:check`, 2026-08-21).
+- **Nothing has yet proved media FLOWS through the relay end to end.**
+  Allocation is not the same as a call being carried: that needs two people on
+  networks that cannot reach each other directly, which no test here can
+  arrange. It is the one remaining unknown, and the phone-on-mobile-data check
+  above is how to close it.
