@@ -21,3 +21,7 @@ supabase/.temp
 # Scratch output for verification builds (see next.config.mjs distDir).
 .next-verify/
 .env*
+
+# The mobile bundle is built (npm run build:mobile), not committed.
+# The fallback index.html that used to live here is superseded by the real one.
+www/

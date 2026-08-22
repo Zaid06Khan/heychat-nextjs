@@ -1,0 +1,19 @@
+/**
+ * What `next/font/google` does on the web, done here instead.
+ *
+ * `index.css` reads `--f-display` and `--f-body`; on the web Next sets them on
+ * <html> through the class it generates. Nothing else in the app names either
+ * family, so this file is the whole seam.
+ *
+ * SELF-HOSTED, AND THAT IS NOT INCIDENTAL. `next/font/google` downloads the
+ * files at build time precisely so no request goes to Google when someone opens
+ * the app, and KNOWN-ISSUES tells users this app talks to almost no third
+ * parties. A <link> to fonts.googleapis.com would have been two lines and would
+ * have quietly made that untrue on every launch. The @fontsource-variable
+ * packages ship the woff2 files in node_modules and Vite emits them alongside
+ * the bundle.
+ */
+:root {
+  --f-display: 'Bricolage Grotesque Variable';
+  --f-body: 'Plus Jakarta Sans Variable';
+}

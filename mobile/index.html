@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Matches the `viewport` export in src/app/layout.jsx exactly. `viewport-fit=cover`
+      is what lets the app paint the full screen, and the shell pads by
+      env(safe-area-inset-top) — without it the header tucks under the status bar,
+      which is one of the seven things the first real-phone test found.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#FFFDF7" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Calamus3" />
+    <title>Calamus3</title>
+
+    <!--
+      Some dependency somewhere reads `process.env.SOMETHING` that the bundler
+      did not replace, and on a phone that surfaces as a white screen with a
+      ReferenceError nobody can see. One object costs nothing and turns a crash
+      into an undefined.
+    -->
+    <script>
+      window.process = window.process || { env: {} };
+    </script>
+  </head>
+  <body>
+    <!--
+      THE SPLASH IS IN THE HTML, not rendered by React, and that is the point.
+      It is the first paint — before the bundle has parsed, before React has
+      mounted — so the app opens on the mark and the name rather than on a white
+      rectangle. React replaces it when it renders into #root.
+
+      It mirrors what `src/app/client-app.jsx` renders server-side on the web, so
+      the two feel like the same app starting.
+    -->
+    <div id="root">
+      <div
+        style="
+          position: fixed;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 1.25rem;
+          background: #fffdf7;
+          font-family: ui-sans-serif, system-ui, sans-serif;
+        "
+      >
+        <img
+          src="/logo.png"
+          alt=""
+          aria-hidden="true"
+          width="112"
+          height="112"
+          style="width: 7rem; height: 7rem; object-fit: contain; user-select: none"
+        />
+        <p style="font-size: 1.875rem; font-weight: 800; letter-spacing: -0.025em; color: #1a1a1a; margin: 0">
+          Calamus3
+        </p>
+        <div
+          role="status"
+          aria-label="Loading"
+          style="
+            width: 1.25rem;
+            height: 1.25rem;
+            border: 2px solid #e8a33d;
+            border-top-color: transparent;
+            border-radius: 9999px;
+            opacity: 0.6;
+            animation: calamus-spin 1s linear infinite;
+          "
+        ></div>
+      </div>
+    </div>
+    <style>
+      @keyframes calamus-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+
+    <script type="module" src="./main.jsx"></script>
+  </body>
+</html>

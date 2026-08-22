@@ -22,7 +22,13 @@ on:
     # commits should not spend build minutes.
     paths:
       - 'android/**'
-      - 'www/**'
+      # `www/` is no longer here: it is BUILT now (npm run build:mobile) and
+      # gitignored, so it can never change in a commit. What produces it is the
+      # SPA source, the mobile shell and the Vite config — those are the paths
+      # that should rebuild the app.
+      - 'src/**'
+      - 'mobile/**'
+      - 'vite.config.mjs'
       - 'capacitor.config.json'
       - 'package.json'
       - '.github/workflows/android.yml'
@@ -50,10 +56,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # THE BUNDLE, BEFORE THE SYNC. `www/` is Capacitor's webDir and is build
+      # output now rather than a committed fallback page, so without this step
+      # `cap sync` would copy an empty directory into the native project.
+      #
+      # NEXT_PUBLIC_API_ORIGIN is what the bundled client calls: from
+      # capacitor://localhost a relative /api/... resolves inside the app
+      # package. The Supabase values are public by design (the anon key grants
+      # nothing on its own — RLS decides), and vite.config.mjs refuses to build
+      # if a secret key is passed instead.
+      - name: Build the mobile bundle
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.NEXT_PUBLIC_VAPID_PUBLIC_KEY }}
+          NEXT_PUBLIC_API_ORIGIN: https://calamus3.vercel.app
+        run: npm run build:mobile
+
       # `cap sync` copies webDir into the native project and refreshes plugins.
-      # The WebView loads the deployed site (server.url in capacitor.config.json),
-      # so what lands here is only the fallback page — but syncing keeps the
-      # native project honest about the config it was built with.
+      # The WebView still loads the deployed site (server.url in
+      # capacitor.config.json), so the bundle it packages is not what runs yet —
+      # flipping that is one line, and it waits on CORS for the Capacitor origin.
       - name: Sync Capacitor
         run: npx cap sync android
 

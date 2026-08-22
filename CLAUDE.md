@@ -32,7 +32,7 @@ The three that shape most decisions:
 npm run dev            # next dev
 npm run build          # see gotcha below before running this
 npm run lint
-npm run test:e2e -- http://localhost:3000       # 148 assertions, backend boundaries
+npm run test:e2e -- http://localhost:3000       # 160 assertions, backend boundaries
 npm run test:browser -- http://localhost:3000   # 136 assertions, real UI, 3 contexts
 npm run db:plan        # migrations in order — needs no database
 npm run db:status      # what is applied, what is pending (export DATABASE_URL first)
@@ -40,6 +40,8 @@ npm run push:keys      # print VAPID env lines
 npm run admin:grant -- <username>   # the only way to grant moderator access
 npm run push:test -- <username>
 npm run turn:check     # does the TURN relay authenticate and allocate?
+npm run build:mobile   # Vite -> www/, the bundle Capacitor packages
+npm run test:bundle    # does that bundle actually boot? (7 assertions)
 ```
 
 ## Gotchas that each cost an hour once
@@ -138,15 +140,42 @@ src/lib/messages/          │
 src/lib/reports.js        ─┘
 src/lib/supabase/         browser / route-handler / service-role clients
 supabase/migrations/      the database, 0001–0028
+mobile/                   the NATIVE app's shell: index.html, entry, fonts
+vite.config.mjs           builds src/ into www/ for Capacitor
+www/                      build output, gitignored — not a committed page
 ```
+
+### Two builds from one `src/`
+
+Next builds the web app and the whole API. **Vite builds the same `src/` into
+`www/` for the native app**, because Capacitor needs static files and Next's
+`output: 'export'` refuses to run in a project that has route handlers.
+
+That works because the SPA barely touches Next: outside `src/app/`, the only
+`next/` import in the tree is `lib/supabase/server.js`, which is server-only.
+`mobile/` supplies what `src/app/` supplied — an HTML shell, the fonts, an entry
+point. **Do not add a `next/` import to anything under `src/screens`,
+`src/components` or `src/lib` that a client bundle can reach**, or the mobile
+build breaks and only CI will notice.
+
+Fonts are self-hosted through `@fontsource-variable/*` rather than a
+`fonts.googleapis.com` link, for the same reason `next/font/google` downloads
+them at build time: KNOWN-ISSUES tells users this app talks to almost no third
+parties, and a `<link>` would quietly make that untrue on every launch.
 
 ### Three Supabase clients, on purpose
 
 | File | Key | Bypasses RLS | Use for |
 |---|---|---|---|
 | `lib/supabase/client.js` | anon | no | everything in the browser |
-| `lib/supabase/server.js` | anon + session cookie | no | route handlers acting as the user |
+| `lib/supabase/server.js` | anon + **bearer token, else** session cookie | no | route handlers acting as the user |
 | `lib/supabase/admin.js` | service role | **yes** | creating auth users, `account_secrets` |
+
+`server.js` prefers an `Authorization: Bearer` header and falls back to the
+cookie, because the native app cannot use a cookie scoped to the deployed
+origin. `getSupabaseCookieClient()` is the cookie one *specifically* — signing
+out needs it, since `auth.signOut()` only clears the storage its own client was
+built on.
 
 `admin.js` imports `server-only`, so the build fails if it reaches a client bundle.
 
