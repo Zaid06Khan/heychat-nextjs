@@ -338,14 +338,15 @@ rule together, or calls start failing to allocate once you are busy.
 
 ## Known gaps
 
-- **The credential is fetched when the first call starts**, which adds one
-  same-origin round trip to call setup — and again on the answering side. On the
-  Cloudflare path that round trip contains a second one, to their API, capped at
-  five seconds. It is cached for the credential's whole lifetime afterwards, so
-  it is once per session in practice. Warming it when a conversation opens would
-  remove even that; it has not been done because it has not been measured to
-  matter, and it would spend a credential per conversation opened rather than
-  per call placed.
+- ~~**The credential is fetched when the first call starts.**~~ **Warmed since
+  2026-08-21.** `watchForCalls` requests it when a conversation opens, without
+  awaiting, so call setup never waits on it. That matters for more than speed:
+  the fetch used to sit between opening the signalling channel and sending the
+  offer, which is exactly the window where an offer that arrives before the
+  other side has joined is dropped in silence. The earlier worry that warming
+  would spend a credential per conversation opened was wrong — the cache in
+  `ice.js` is module-level, so it is one request per session however many
+  conversations are opened.
 - **`hasTurn()` is false until the first fetch**, so the "some networks need a
   relay" explanation in `CallBar` is only accurate once a call has been
   attempted. That is the right direction to be wrong in — it offers the

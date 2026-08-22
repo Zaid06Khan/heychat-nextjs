@@ -855,6 +855,23 @@ export async function watchForCalls({ conversationId, meId, peerName, peerAvatar
    */
   const myToken = ++watchToken;
 
+  /**
+   * Fetch the ICE configuration NOW, off the critical path.
+   *
+   * `newPeerConnection()` awaits it, and on the first call of a session that is
+   * a network round trip sitting between opening the signalling channel and
+   * sending the offer — which is precisely the window the subscribe race lives
+   * in: an offer that arrives before the other side has finished joining is
+   * dropped in silence. Widening it was an accident of making the credential
+   * fetched rather than built in; this closes it again.
+   *
+   * NOT AWAITED, and it must not be — the point is that opening a conversation
+   * pays for this instead of placing a call. The cache in `ice.js` is
+   * module-level, so this is one request per session no matter how many
+   * conversations are opened, and `getIceConfig()` never throws.
+   */
+  getIceConfig();
+
   publish({ status: 'idle', conversationId, meId, peerName, peerAvatar });
   watching = true;
   await openChannel(conversationId, meId);
