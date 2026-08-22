@@ -32,6 +32,18 @@ const check = (ok, label, extra = '') => {
   ok ? pass++ : fail++;
 };
 
+/**
+ * Couldn't run, as distinct from didn't pass.
+ *
+ * The login limiter is per username and per IP and keeps a 15-minute window, so
+ * running this suite twice in a row — or against a deployment somebody else is
+ * also testing — exhausts it. Those assertions then report FAIL for a reason
+ * that is the app working correctly, which is how a suite trains people to
+ * ignore it. A rate limit is a skip.
+ */
+const skip = (label, why) => console.log(`  SKIP  ${label}
+        ${why}`);
+
 const post = async (path, body) => {
   const res = await fetch(APP + path, {
     method: 'POST',
@@ -1223,23 +1235,33 @@ check(asUser.status !== 200,
 const plainLogin = await post('/api/auth/login', {
   username: carol, password: PW, device_fingerprint: FP,
 });
-check(plainLogin.status === 200 && !plainLogin.json?.session,
-  'login returns no tokens to a caller that did not ask',
-  `status=${plainLogin.status} session=${plainLogin.json?.session ? 'present' : 'absent'}`);
 
-const nativeLogin = await post('/api/auth/login', {
-  username: carol, password: PW, device_fingerprint: FP, want_session: true,
-});
-const handedToken = nativeLogin.json?.session?.access_token;
-check(Boolean(handedToken) && Boolean(nativeLogin.json?.session?.refresh_token),
-  'and both tokens when it does — a refresh token too, or the app signs out in an hour',
-  `status=${nativeLogin.status}`);
+if (plainLogin.status === 429) {
+  // Two logins for one account, on top of everything §14 spent. Against a
+  // deployment that has been tested recently this is the first thing to run
+  // out, and it says nothing about want_session either way.
+  skip('login returns no tokens to a caller that did not ask',
+    `login is rate limited (${plainLogin.json?.error || '429'}) — not a failure`);
+  skip('and both tokens when it does', 'same rate limit');
+} else {
+  check(plainLogin.status === 200 && !plainLogin.json?.session,
+    'login returns no tokens to a caller that did not ask',
+    `status=${plainLogin.status} session=${plainLogin.json?.session ? 'present' : 'absent'}`);
 
-if (handedToken) {
-  const usingHanded = await iceWith({ Authorization: `Bearer ${handedToken}` });
-  check(usingHanded.status === 200,
-    'and the token it hands back actually authenticates',
-    `status=${usingHanded.status}`);
+  const nativeLogin = await post('/api/auth/login', {
+    username: carol, password: PW, device_fingerprint: FP, want_session: true,
+  });
+  const handedToken = nativeLogin.json?.session?.access_token;
+  check(Boolean(handedToken) && Boolean(nativeLogin.json?.session?.refresh_token),
+    'and both tokens when it does — a refresh token too, or the app signs out in an hour',
+    `status=${nativeLogin.status}`);
+
+  if (handedToken) {
+    const usingHanded = await iceWith({ Authorization: `Bearer ${handedToken}` });
+    check(usingHanded.status === 200,
+      'and the token it hands back actually authenticates',
+      `status=${usingHanded.status}`);
+  }
 }
 
 // LOGGING OUT MUST CLEAR THE COOKIE EVEN WHEN THE CALLER USED A BEARER.
