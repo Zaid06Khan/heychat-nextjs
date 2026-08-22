@@ -1267,6 +1267,58 @@ check(clearsSession,
   'and still clears the session cookie, rather than logging out only the token',
   setCookies.length ? setCookies.map((c) => c.split(';')[0].split('=')[0]).join(', ') : 'no Set-Cookie at all');
 
+console.log('\n--- 17. CORS FOR THE BUNDLED APP ---');
+// The bundled client calls this API from `capacitor://localhost` (iOS) or
+// `https://localhost` (Android). Without a matching Access-Control-Allow-Origin
+// the WebView refuses the response before any app code sees it: the request
+// succeeds on the server and the app shows a network error.
+//
+// `Authorization` is not a CORS-safelisted request header, so every call
+// carrying a bearer token is preflighted — which is why OPTIONS has to be
+// answered rather than left to a route handler that would 405 it.
+const NATIVE_ORIGIN = 'capacitor://localhost';
+
+const preflight = await fetch(APP + '/api/calls/ice', {
+  method: 'OPTIONS',
+  headers: {
+    Origin: NATIVE_ORIGIN,
+    'Access-Control-Request-Method': 'GET',
+    'Access-Control-Request-Headers': 'authorization',
+  },
+});
+check(preflight.status === 204 || preflight.status === 200,
+  'a preflight from the app origin is answered, not 405d',
+  `status=${preflight.status}`);
+check(preflight.headers.get('access-control-allow-origin') === NATIVE_ORIGIN,
+  'and names that exact origin back',
+  preflight.headers.get('access-control-allow-origin') || 'no header');
+check(/authorization/i.test(preflight.headers.get('access-control-allow-headers') || ''),
+  'and permits the Authorization header, without which the token cannot be sent',
+  preflight.headers.get('access-control-allow-headers') || 'no header');
+
+// The real request, with the token, as the app would send it.
+const corsReal = await fetch(APP + '/api/calls/ice', {
+  headers: { Origin: NATIVE_ORIGIN, Authorization: `Bearer ${aliceToken}` },
+});
+check(corsReal.status === 200 && corsReal.headers.get('access-control-allow-origin') === NATIVE_ORIGIN,
+  'and the real request comes back readable by that origin',
+  `status=${corsReal.status} allow-origin=${corsReal.headers.get('access-control-allow-origin')}`);
+
+// A WILDCARD WOULD PASS EVERY ASSERTION ABOVE. This is the one that says the
+// allowlist is real: some other site must NOT be handed permission.
+const stranger = await fetch(APP + '/api/calls/ice', {
+  headers: { Origin: 'https://evil.example', Authorization: `Bearer ${aliceToken}` },
+});
+check(!stranger.headers.get('access-control-allow-origin'),
+  'while an origin that is not on the list gets no permission at all',
+  stranger.headers.get('access-control-allow-origin') || 'no header (correct)');
+
+// And the web app, which shares an origin and needs none of this, is untouched.
+const sameOrigin = await fetch(APP + '/api/calls/ice', {
+  headers: { Authorization: `Bearer ${aliceToken}` },
+});
+check(sameOrigin.status === 200, 'a same-origin call is unaffected', `status=${sameOrigin.status}`);
+
 console.log(`\n=========== ${pass} passed, ${fail} failed ===========\n`);
 
 
