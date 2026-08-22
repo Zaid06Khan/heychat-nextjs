@@ -1,11 +1,13 @@
 # The TURN relay
 
-**Status: configured in development, 2026-08-21. Not yet in production.**
-`CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN` are set in
-`.env.local`; the same two variables still need adding in Vercel before
-deployed calls get a relay. **`npm run turn:check` passes** — the relay
-authenticates and allocates, verified by gathering real ICE candidates rather
-than by inspecting a credential.
+**Status: LIVE IN PRODUCTION, 2026-08-21.** `CLOUDFLARE_TURN_KEY_ID` and
+`CLOUDFLARE_TURN_API_TOKEN` are set in `.env.local` and in Vercel for
+Development, Preview and Production. `GET /api/calls/ice` on
+`calamus3.vercel.app` answers `provider: "cloudflare"`, confirmed by running
+`test:e2e` against the deployed app rather than against localhost.
+**`npm run turn:check` passes** — the relay authenticates and allocates,
+verified by gathering real ICE candidates rather than by inspecting a
+credential.
 
 The app works without a relay too, and says so honestly when a call fails.
 
