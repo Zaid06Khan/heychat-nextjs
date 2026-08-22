@@ -1,4 +1,4 @@
-import { getSupabaseRouteClient } from '@/lib/supabase/server';
+import { getSupabaseRouteClient, getSupabaseCookieClient } from '@/lib/supabase/server';
 import { getSupabaseAdminClient } from '@/lib/supabase/admin';
 
 /**
@@ -40,7 +40,13 @@ export async function POST() {
     return Response.json({ error: 'Could not delete account.' }, { status: 500 });
   }
 
-  await supabase.auth.signOut();
+  await supabase.auth.signOut().catch(() => {});
+
+  // AND THE COOKIE — see the note in /api/auth/logout. A bearer caller's
+  // signOut leaves the cookie untouched, and for a DELETED account that would
+  // mean a browser still holding a session for a user that no longer exists.
+  const cookieClient = await getSupabaseCookieClient();
+  await cookieClient.auth.signOut().catch(() => {});
 
   return Response.json({ ok: true });
 }

@@ -1,5 +1,6 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 
 /**
  * Request-scoped Supabase client for route handlers.
@@ -23,8 +24,6 @@ import { createServerClient } from '@supabase/ssr';
  * the argument is optional so the other callers did not have to move.
  */
 export async function getSupabaseRouteClient(request) {
-  const cookieStore = await cookies();
-
   const forwarded = {};
   if (request) {
     const ua = request.headers.get('user-agent');
@@ -35,6 +34,76 @@ export async function getSupabaseRouteClient(request) {
       request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip');
     if (ip) forwarded['X-Forwarded-For'] = ip;
   }
+
+  /**
+   * A BEARER TOKEN WINS OVER THE COOKIE, and the native app is why.
+   *
+   * Bundled into the app the client runs from `capacitor://localhost`, so a
+   * cookie scoped to the deployed origin is third-party — and WKWebView blocks
+   * those outright. It is not a setting that can be loosened, so the token has
+   * to travel in a header instead.
+   *
+   * NO ROUTE HANDLER CHANGED FOR THIS. The token is read from `headers()`
+   * rather than from an argument, so all fourteen callers keep working
+   * untouched — and `auth.getUser()` with no argument resolves the bearer on a
+   * client configured this way, which is what made that possible. Measured
+   * before it was relied on, not assumed.
+   *
+   * ADDITIVE: with no bearer this falls through to the cookie exactly as
+   * before, because the web app still signs in that way.
+   *
+   * An empty `Bearer ` is treated as ABSENT rather than as a failed login. It
+   * means a client built the header wrong, and falling through lets the cookie
+   * answer instead of turning a client bug into a sign-out.
+   */
+  const requestHeaders = await headers();
+  const authorization = requestHeaders.get('authorization') || '';
+  const bearer = authorization.toLowerCase().startsWith('bearer ')
+    ? authorization.slice(7).trim()
+    : '';
+
+  if (bearer) {
+    return createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      {
+        global: { headers: { ...forwarded, Authorization: `Bearer ${bearer}` } },
+        // Nothing to persist and nothing to refresh: this client lives for one
+        // request. Left on, it would try to write a session into whatever
+        // storage it could find on the server.
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      }
+    );
+  }
+
+  return getSupabaseCookieClient(request);
+}
+
+/**
+ * The cookie-backed client, specifically — never the bearer one.
+ *
+ * SIGNING OUT IS WHY THIS IS SEPARATE. `auth.signOut()` clears whatever storage
+ * its client was built on, so on a bearer client it revokes the token and
+ * leaves the cookie untouched. A web user who logged out would stay signed in,
+ * silently, because their cookie still worked. `/api/auth/logout` and
+ * `/api/auth/delete-account` therefore clear the cookie through THIS client
+ * regardless of how the caller authenticated.
+ */
+export async function getSupabaseCookieClient(request) {
+  const forwarded = {};
+  if (request) {
+    const ua = request.headers.get('user-agent');
+    if (ua) forwarded['User-Agent'] = ua;
+    const ip =
+      request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip');
+    if (ip) forwarded['X-Forwarded-For'] = ip;
+  }
+
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,

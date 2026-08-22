@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/api';
+
 import { useEffect, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { getIceConfig } from './ice';
@@ -435,7 +437,7 @@ function sendOffer(sdp, video) {
  */
 function ringByPush(conversationId, video) {
   try {
-    fetch('/api/calls/ring', {
+    apiFetch('/api/calls/ring', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversation_id: conversationId, video: Boolean(video) }),

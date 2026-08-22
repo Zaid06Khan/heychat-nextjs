@@ -2,6 +2,7 @@
 
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { disablePush } from '@/lib/push/client';
+import { apiPost } from '@/lib/api';
 
 /**
  * Same exported functions and signatures as the Base44 version, so no component
@@ -67,26 +68,11 @@ export function clearSession() {
   invalidateCurrentAccount();
 }
 
-async function postJson(url, body) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
-  });
-
-  let payload = null;
-  try {
-    payload = await res.json();
-  } catch {
-    /* empty body */
-  }
-
-  if (!res.ok) {
-    throw new Error(payload?.error || 'Something went wrong. Please try again.');
-  }
-
-  return payload;
-}
+/**
+ * Moved to `lib/api.js` so the bearer token and the API origin are attached in
+ * ONE place. Kept as a local alias so the ten call sites below read unchanged.
+ */
+const postJson = apiPost;
 
 /* ------------------------------------------------------------------ auth */
 

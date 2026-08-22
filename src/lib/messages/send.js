@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/api';
+
 /**
  * Sending a message.
  *
@@ -25,7 +27,7 @@ export async function sendMessage({
   mediaUrl = '',
   replyToId = null,
 }) {
-  const res = await fetch('/api/messages', {
+  const res = await apiFetch('/api/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

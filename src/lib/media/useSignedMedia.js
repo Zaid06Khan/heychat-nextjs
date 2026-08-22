@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/api';
+
 import { useEffect, useState } from 'react';
 
 /**
@@ -29,7 +31,7 @@ async function fetchSigned(cacheKey, payload) {
 
   const promise = (async () => {
     try {
-      const res = await fetch('/api/media/sign', {
+      const res = await apiFetch('/api/media/sign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

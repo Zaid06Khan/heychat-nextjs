@@ -1,5 +1,7 @@
 'use client';
 
+import { apiPost } from '@/lib/api';
+
 /**
  * Browser half of Web Push.
  *
@@ -95,18 +97,12 @@ export async function getPushState() {
   return { supported: true, configured: isPushConfigured(), permission, subscribed };
 }
 
-async function postJson(path, body) {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'Request failed');
-  }
-  return res.json().catch(() => ({}));
-}
+/**
+ * A second copy of this used to live here. It is `lib/api.js` now, so the
+ * bearer token and the API origin are attached in one place rather than two
+ * that could drift — push registration authenticates like everything else.
+ */
+const postJson = apiPost;
 
 /**
  * Asks for permission if it has not been given, then subscribes and registers

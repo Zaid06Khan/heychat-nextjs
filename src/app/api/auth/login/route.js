@@ -19,7 +19,7 @@ export async function POST(request) {
     return jsonError('Invalid request body.');
   }
 
-  const { username, password } = body ?? {};
+  const { username, password, want_session: wantSession = false } = body ?? {};
 
   if (!username || !password) {
     return jsonError('Username and password are required.');
@@ -117,6 +117,30 @@ export async function POST(request) {
     .select('*')
     .eq('id', userId)
     .single();
+
+  /**
+   * THE TOKENS, BUT ONLY WHEN ASKED FOR.
+   *
+   * The web app never needs them: signing in happened server-side and the
+   * session cookie is already set on this response. The bundled native client
+   * cannot use that cookie — it runs from `capacitor://localhost`, where a
+   * cookie for the deployed origin is third-party and WKWebView blocks it — so
+   * it asks for the session and stores it itself.
+   *
+   * Gated on the flag rather than always returned so the web response carries
+   * no token it has no use for. Anyone who can set the flag already supplied a
+   * correct password, so this guards tidiness rather than access.
+   */
+  if (wantSession && signIn?.session) {
+    return Response.json({
+      account,
+      session: {
+        access_token: signIn.session.access_token,
+        refresh_token: signIn.session.refresh_token,
+        expires_at: signIn.session.expires_at,
+      },
+    });
+  }
 
   return Response.json({ account });
 }

@@ -1151,6 +1151,122 @@ if (!relay) {
   }
 }
 
+console.log('\n--- 16. AUTHENTICATING WITH A BEARER TOKEN ---');
+// WHY THIS EXISTS: the native app cannot use the session cookie.
+//
+// Once the client is bundled into the app it runs from `capacitor://localhost`,
+// so a cookie for calamus3.vercel.app is third-party — and WKWebView blocks
+// those outright. It is not a setting that can be loosened. Every route that
+// authenticates therefore has to accept `Authorization: Bearer <access_token>`
+// as well as the cookie.
+//
+// ADDITIVE ON PURPOSE. The cookie path is asserted below too, because the web
+// app still uses it and a regression there would take out every signed-in
+// screen at once.
+const bearerFor = async (username) => {
+  const c = await signedInClient(username);
+  const { data } = await c.auth.getSession();
+  return data?.session?.access_token;
+};
+
+const aliceToken = await bearerFor(alice);
+const carolToken = await bearerFor(carol);
+
+const iceWith = (headers) => fetch(APP + '/api/calls/ice', { headers });
+
+const bearerOnly = await iceWith({ Authorization: `Bearer ${carolToken}` });
+check(bearerOnly.status === 200,
+  'a bearer token alone authenticates, with no cookie at all',
+  `status=${bearerOnly.status}`);
+
+const cookieOnly = await iceWith({ cookie: modCookie });
+check(cookieOnly.status === 200,
+  'and the cookie still works, because the web app depends on it',
+  `status=${cookieOnly.status}`);
+
+const noAuth = await iceWith({});
+check(noAuth.status === 401, 'while neither is still refused', `status=${noAuth.status}`);
+
+const garbage = await iceWith({ Authorization: 'Bearer not.a.real.jwt' });
+check(garbage.status === 401,
+  'a malformed token is refused rather than ignored into an anonymous pass',
+  `status=${garbage.status}`);
+
+// A token that is merely ABSENT from the header must not fall through to some
+// ambient session — "Bearer" with nothing after it is a client bug, not a login.
+const emptyBearer = await iceWith({ Authorization: 'Bearer ' });
+check(emptyBearer.status === 401, 'and so is an empty one', `status=${emptyBearer.status}`);
+
+// IDENTITY, NOT JUST VALIDITY. A route that reads `auth.uid()` must see the
+// account the TOKEN names — carol is the moderator (promoted in §14), alice is
+// not. If the bearer were being ignored in favour of anything else, these two
+// would not differ.
+const asMod = await fetch(APP + '/api/admin/reports?status=pending', {
+  headers: { Authorization: `Bearer ${carolToken}` },
+});
+check(asMod.status === 200,
+  'the moderator queue opens for a bearer belonging to the moderator',
+  `status=${asMod.status}`);
+
+const asUser = await fetch(APP + '/api/admin/reports?status=pending', {
+  headers: { Authorization: `Bearer ${aliceToken}` },
+});
+check(asUser.status !== 200,
+  'and not for a bearer belonging to someone else',
+  `status=${asUser.status}`);
+
+// WHERE THE NATIVE CLIENT GETS ITS TOKEN FROM.
+//
+// It cannot read the session cookie this route sets, so it asks for the tokens
+// in the body instead. Gated on a flag so the web response — which has the
+// cookie and no use for them — carries no token at all.
+const plainLogin = await post('/api/auth/login', {
+  username: carol, password: PW, device_fingerprint: FP,
+});
+check(plainLogin.status === 200 && !plainLogin.json?.session,
+  'login returns no tokens to a caller that did not ask',
+  `status=${plainLogin.status} session=${plainLogin.json?.session ? 'present' : 'absent'}`);
+
+const nativeLogin = await post('/api/auth/login', {
+  username: carol, password: PW, device_fingerprint: FP, want_session: true,
+});
+const handedToken = nativeLogin.json?.session?.access_token;
+check(Boolean(handedToken) && Boolean(nativeLogin.json?.session?.refresh_token),
+  'and both tokens when it does — a refresh token too, or the app signs out in an hour',
+  `status=${nativeLogin.status}`);
+
+if (handedToken) {
+  const usingHanded = await iceWith({ Authorization: `Bearer ${handedToken}` });
+  check(usingHanded.status === 200,
+    'and the token it hands back actually authenticates',
+    `status=${usingHanded.status}`);
+}
+
+// LOGGING OUT MUST CLEAR THE COOKIE EVEN WHEN THE CALLER USED A BEARER.
+//
+// `auth.signOut()` clears the storage ITS OWN client was built on. Once a
+// bearer wins over the cookie, a browser sending both would have its token
+// revoked and its cookie left intact — logged out, still signed in, silently.
+// The route clears the cookie explicitly for that reason; this is the guard.
+//
+// Asserted on the Set-Cookie header rather than by re-using the old cookie,
+// because the access token inside it stays cryptographically valid until it
+// expires — revoking a session does not un-sign a JWT. That is the same
+// caveat KNOWN-ISSUES records about suspension.
+const loggedOut = await fetch(APP + '/api/auth/logout', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${carolToken}`, cookie: modCookie },
+});
+const setCookies = loggedOut.headers.getSetCookie?.() || [];
+const clearsSession = setCookies.some(
+  (c) => /^sb-/i.test(c) && (/max-age=0/i.test(c) || /expires=thu, 01 jan 1970/i.test(c))
+);
+check(loggedOut.status === 200, 'logging out with a bearer succeeds',
+  `status=${loggedOut.status}`);
+check(clearsSession,
+  'and still clears the session cookie, rather than logging out only the token',
+  setCookies.length ? setCookies.map((c) => c.split(';')[0].split('=')[0]).join(', ') : 'no Set-Cookie at all');
+
 console.log(`\n=========== ${pass} passed, ${fail} failed ===========\n`);
 
 

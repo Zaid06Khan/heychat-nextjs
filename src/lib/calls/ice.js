@@ -1,5 +1,7 @@
 'use client';
 
+import { apiFetch } from '@/lib/api';
+
 /**
  * Where the browser looks to find a route to the other person.
  *
@@ -13,8 +15,9 @@
  * TURN *relays the media* when a direct connection is impossible — symmetric
  * NAT, strict corporate firewalls, some mobile carriers. Roughly 15-20% of
  * connections need it, and because it carries the media it costs bandwidth for
- * as long as the call lasts. That is why it is self-hosted here rather than
- * bought per-minute. `docs/TURN.md` is the runbook.
+ * as long as the call lasts. Cloudflare's relay is what this uses, chosen for
+ * being free at this app's size; `docs/TURN.md` has the comparison and the
+ * self-hosted coturn fallback.
  *
  * THE CREDENTIAL IS FETCHED, NOT BUILT IN. Until 2026-08-20 this module read
  * `NEXT_PUBLIC_TURN_URL/USERNAME/CREDENTIAL`, which put a fixed relay password
@@ -48,7 +51,7 @@ let relayConfigured = false;
 const REFRESH_MARGIN_MS = 60 * 1000;
 
 async function fetchIceConfig() {
-  const res = await fetch('/api/calls/ice', { credentials: 'same-origin' });
+  const res = await apiFetch('/api/calls/ice');
   if (!res.ok) throw new Error(`ice: HTTP ${res.status}`);
   const body = await res.json();
 

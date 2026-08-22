@@ -1,3 +1,5 @@
+import { apiFetch } from '@/lib/api';
+
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ShieldAlert, Ban, Check, X, RotateCcw } from 'lucide-react';
@@ -44,7 +46,7 @@ export default function AdminReports() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/admin/reports?status=${which}`);
+      const res = await apiFetch(`/api/admin/reports?status=${which}`);
       if (res.status === 404 || res.status === 401) {
         setDenied(true);
         setReports([]);
@@ -65,7 +67,7 @@ export default function AdminReports() {
     setBusyId(report.id);
     setError('');
     try {
-      const res = await fetch('/api/admin/moderate', {
+      const res = await apiFetch('/api/admin/moderate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
