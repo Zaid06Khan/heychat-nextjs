@@ -1,5 +1,23 @@
 apply plugin: 'com.android.application'
 
+/**
+ * SET BY CI, defaulting to a local build's values.
+ *
+ * Play refuses an upload whose versionCode is not higher than the last one, and
+ * a used code is never freed — not even by deleting the release. The workflow
+ * passes the GitHub run number, which only ever increases, so nobody has to
+ * remember to bump anything.
+ *
+ * COMPUTED HERE, NOT INLINE IN defaultConfig, because Groovy parses
+ * `versionCode (expr).toString().toInteger()` as
+ * `versionCode(expr).toString().toInteger()` — the chain lands on the RESULT of
+ * the setter rather than on the value. That handed versionCode a String and
+ * failed the build with "Value is null", which names neither the property nor
+ * the cause.
+ */
+def calamusVersionCode = (project.findProperty("calamusVersionCode") ?: "1").toString().toInteger()
+def calamusVersionName = (project.findProperty("calamusVersionName") ?: "1.0").toString()
+
 android {
     namespace = "app.calamus3.mobile"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,14 +25,8 @@ android {
         applicationId "app.calamus3.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // SET BY CI, defaulting to 1 for a local build.
-        //
-        // Play refuses an upload whose versionCode is not higher than the last
-        // one, and it can never be reused — not even after deleting the
-        // release. The workflow passes the GitHub run number, which only ever
-        // increases, so no human has to remember to bump anything.
-        versionCode (project.findProperty("calamusVersionCode") ?: "1").toString().toInteger()
-        versionName project.findProperty("calamusVersionName") ?: "1.0"
+        versionCode calamusVersionCode
+        versionName calamusVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
