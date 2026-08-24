@@ -25,3 +25,9 @@ supabase/.temp
 # The mobile bundle is built (npm run build:mobile), not committed.
 # The fallback index.html that used to live here is superseded by the real one.
 www/
+
+# Signing keys never live in the repo. The upload keystore is in
+# Documents/calamus3-signing and reaches CI as a base64 secret.
+*.jks
+*.keystore
+keystore.properties

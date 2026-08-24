@@ -7,8 +7,14 @@ android {
         applicationId "app.calamus3.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // SET BY CI, defaulting to 1 for a local build.
+        //
+        // Play refuses an upload whose versionCode is not higher than the last
+        // one, and it can never be reused — not even after deleting the
+        // release. The workflow passes the GitHub run number, which only ever
+        // increases, so no human has to remember to bump anything.
+        versionCode (project.findProperty("calamusVersionCode") ?: "1").toString().toInteger()
+        versionName project.findProperty("calamusVersionName") ?: "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +22,38 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    /**
+     * The UPLOAD key, read from the environment and never from a file in this
+     * repo. CI decodes it from a secret into a path it then deletes.
+     *
+     * Absent — which is every local build — this block leaves the config with no
+     * store file, and the release build below falls back to unsigned rather than
+     * failing. That keeps `assembleDebug` and a local release build working on a
+     * machine that has no business holding the key.
+     */
+    signingConfigs {
+        release {
+            def storePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (storePath) {
+                storeFile file(storePath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Only when there is something to sign with. Assigning the config
+            // unconditionally makes a keyless build fail with a Gradle error
+            // about a missing store file, which reads as a broken build script
+            // rather than a missing secret.
+            if (System.getenv("ANDROID_KEYSTORE_PATH")) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
