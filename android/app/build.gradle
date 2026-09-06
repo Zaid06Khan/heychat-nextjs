@@ -19,10 +19,10 @@ def calamusVersionCode = (project.findProperty("calamusVersionCode") ?: "1").toS
 def calamusVersionName = (project.findProperty("calamusVersionName") ?: "1.0").toString()
 
 android {
-    namespace = "app.calamus3.mobile"
+    namespace = "com.thequreshico.calamus3"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "app.calamus3.mobile"
+        applicationId "com.thequreshico.calamus3"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode calamusVersionCode

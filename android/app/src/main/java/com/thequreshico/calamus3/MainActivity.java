@@ -1,4 +1,4 @@
-package app.calamus3.mobile;
+package com.thequreshico.calamus3;
 
 import com.getcapacitor.BridgeActivity;
 
