@@ -17,6 +17,7 @@
     "admin:grant": "node scripts/grant-admin.mjs",
     "turn:check": "node scripts/relay-check.mjs",
     "build:mobile": "vite build",
+    "seed:review": "node scripts/seed-review-account.mjs",
     "test:bundle": "node scripts/bundle-boot.mjs"
   },
   "dependencies": {

@@ -153,4 +153,7 @@ outstanding for that, none of it code:
   which the page renders as a visible placeholder until it is set
 - a **moderation process** — `reports` rows are written and nothing reads them; Apple asks how reports are actioned
 - **$99/year** Apple Developer, **$25** once for Google Play
-- a **Capacitor** wrapper, and native push (APNs + FCM) alongside the existing Web Push
+- a **Capacitor** wrapper, and native push (APNs + FCM) alongside the existing Web Push.
+  **That release must also update the Play Data Safety declarations and the privacy
+  page**: an FCM token is a "Device or other IDs" collection, and today's filing says
+  we collect none — true only because `PushManager` is absent in a WebView. FOLLOWUPS §10.

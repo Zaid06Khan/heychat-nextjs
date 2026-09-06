@@ -25,11 +25,28 @@ the four DONE sections below each carry gaps that are still open.
 | 7 | CLOSED | Username changes would orphan the auth user | No — 0026 applied 2026-08-19 |
 | 8 | CLOSED | Base44 shim retired | No — deleted 2026-08-18. Gap: dead `CallOverlay` route |
 | 9 | OPEN | Smaller items | Yes — 5 open. Contact search fixed 2026-08-19; **both credentials rotated 2026-08-19** |
-| 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window |
+| 10 | DONE | Push notifications | Gaps: per-process limiter; a narrow crash window. **Native push MUST update the Play Data Safety form** — see below |
 | 11 | DONE | Replies, reactions, edit, delete, typing | 0016/0017/0020 applied. Gaps: notification not cleared on delete, read race (**optimistic send done 2026-08-20**) |
 | 12 | DONE | Unread counts | No — **muted conversations stopped counting 2026-08-20**; the four-badge double-mount is fixed |
 | 14 | DONE | Moderation: queue, suspension, audit trail | Gaps: reported content untouched, no appeal path |
 | 13 | DONE | Group management | 0019 applied. Gaps: no audit trail, admin is a single point of failure |
+
+### Blocking checklist item: native push changes what we must declare
+
+**Do not ship native push without updating the Play Data Safety form in the
+same release.** The declarations filed 2026-09-05 say this app collects no
+advertising or installation identifier, which is true *today* only because
+`lib/push/client.js` feature-detects `'PushManager' in window` — absent in an
+Android WebView, so the shipped app creates no subscription at all.
+
+An FCM registration token is unambiguously **Device or other IDs** under Play's
+taxonomy. Adding `@capacitor/push-notifications` therefore starts collecting a
+data type the store listing says is not collected, which is a policy violation
+rather than a paperwork lapse, and it is silent — nothing in the build fails.
+
+Three things move together in that release: the Data Safety form, the "what the
+app stores" section of `src/app/privacy/page.jsx`, and the token storage
+migration. See `docs/DEPLOY.md` and the app-store notes.
 
 ---
 
