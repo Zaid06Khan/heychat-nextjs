@@ -147,7 +147,10 @@ the same Bearer header.
 Deploying gets you a URL. It does **not** get you into the app stores. Still
 outstanding for that, none of it code:
 
-- a published **privacy policy** and terms — both stores refuse a listing without a policy URL
+- **terms of service** — the privacy policy itself is done: `/privacy`, written
+  2026-09-05 against the actual schema. It still needs the operator's legal name
+  filled into the `OPERATOR` constant at the top of `src/app/privacy/page.jsx`,
+  which the page renders as a visible placeholder until it is set
 - a **moderation process** — `reports` rows are written and nothing reads them; Apple asks how reports are actioned
 - **$99/year** Apple Developer, **$25** once for Google Play
 - a **Capacitor** wrapper, and native push (APNs + FCM) alongside the existing Web Push

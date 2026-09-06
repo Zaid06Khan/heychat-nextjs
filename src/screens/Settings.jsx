@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { updateAccount } from '@/lib/accounts';
 import { getCurrentAccount, logout, deleteAccount, hasRecoveryPassword } from '@/lib/heychatAuth';
-import { ArrowLeft, Shield, Eye, Users, Trash2, LogOut, Smartphone, AlertTriangle, Globe, KeyRound, MapPin, HardDrive } from 'lucide-react';
+import { ArrowLeft, Shield, Eye, Users, Trash2, LogOut, Smartphone, AlertTriangle, Globe, KeyRound, MapPin, HardDrive, FileText } from 'lucide-react';
+import { apiUrl } from '@/lib/api';
 import { LANGUAGES, setLanguage } from '@/lib/i18n';
 import ChangePasswordDialog from '@/components/heychat/ChangePasswordDialog';
 import RecoveryPasswordDialog from '@/components/heychat/RecoveryPasswordDialog';
@@ -207,6 +208,21 @@ export default function Settings() {
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Account</h2>
           <div className="space-y-1">
+            {/* `apiUrl` because the native bundle has no /privacy of its own —
+                the page is an App Router route, not an SPA screen, so from
+                `capacitor://localhost` this has to be the deployed origin.
+                _blank sends it to the system browser there rather than
+                navigating the app out of itself. Apple expects the policy to be
+                reachable in-app, not only from the store listing. */}
+            <a
+              href={apiUrl('/privacy')}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center gap-3 p-3 rounded-xl bg-card border border-border hover:bg-secondary transition text-left"
+            >
+              <FileText className="w-5 h-5 text-muted-foreground" />
+              <p className="text-sm font-medium text-foreground">Privacy policy</p>
+            </a>
             <button onClick={async () => { await logout(); navigate('/'); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-card border border-border hover:bg-secondary transition text-left">
               <LogOut className="w-5 h-5 text-muted-foreground" />
               <p className="text-sm font-medium text-foreground">Log out</p>

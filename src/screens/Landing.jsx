@@ -1,6 +1,7 @@
 import { Link, Navigate } from 'react-router-dom';
 import { Lock, Flame, AtSign, Users } from 'lucide-react';
 import { getSession } from '@/lib/heychatAuth';
+import { apiUrl } from '@/lib/api';
 import Logo from '@/components/heychat/Logo';
 
 export default function Landing() {
@@ -55,6 +56,21 @@ export default function Landing() {
               <p className="text-xs font-bold text-muted-foreground">{f.label}</p>
             </div>
           ))}
+        </div>
+
+        {/* Reachable before anyone has an account, which is the point — the
+            store listings link here, and someone deciding whether to sign up
+            should be able to read it first. `apiUrl` for the same reason as in
+            Settings: no /privacy exists inside the native bundle. */}
+        <div className="max-w-2xl mx-auto mt-10 text-center">
+          <a
+            href={apiUrl('/privacy')}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-bold text-muted-foreground underline underline-offset-4 hover:text-foreground transition"
+          >
+            Privacy policy
+          </a>
         </div>
       </div>
     </div>
